@@ -1090,8 +1090,13 @@
         el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
       });
     };
-    drag(sv, e => { const r = sv.getBoundingClientRect(); hsv.s = clamp((e.clientX - r.left) / r.width, 0, 1); hsv.v = 1 - clamp((e.clientY - r.top) / r.height, 0, 1); paint(true); });
-    drag(hue, e => { const r = hue.getBoundingClientRect(); hsv.h = clamp((e.clientX - r.left) / r.width, 0, 1) * 360; paint(true); });
+    // The knob is positioned inside the border, so measure against the padding box too.
+    const frac = (el, e) => {
+      const r = el.getBoundingClientRect();
+      return [clamp((e.clientX - r.left - el.clientLeft) / el.clientWidth, 0, 1), clamp((e.clientY - r.top - el.clientTop) / el.clientHeight, 0, 1)];
+    };
+    drag(sv, e => { const [x, y] = frac(sv, e); hsv.s = x; hsv.v = 1 - y; paint(true); });
+    drag(hue, e => { hsv.h = frac(hue, e)[0] * 360; paint(true); });
     paint(false);
   }
 
