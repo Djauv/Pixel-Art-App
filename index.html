@@ -111,6 +111,7 @@
   }
   #overlay.clear { background: transparent; }
   #overlay[hidden] { display: none; }
+  body.playing header, body.playing footer, body.playing #zoom { visibility: hidden; }
   #stopPlay { display: none; }
   #overlay.playing #sheet { display: none; }
   #overlay.playing #stopPlay { display: block; width: calc(100% - 24px); max-width: 400px; margin-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
@@ -329,7 +330,7 @@
       ctx.globalAlpha = 0.3; ctx.drawImage(offO, 0, 0, W, H); ctx.globalAlpha = 1;
     }
     ctx.drawImage(off, 0, 0, W, H);
-    if (showGrid && bmpK >= 3 && cell >= 4) {
+    if (showGrid && !playing && bmpK >= 3 && cell >= 4) {
       const k = bmpK;
       const pass = (o, style) => {
         ctx.strokeStyle = style; ctx.lineWidth = 1; ctx.beginPath();
@@ -342,7 +343,7 @@
       pass(.5, `rgba(0,0,0,${gridAlpha})`);
       if (k >= 5) pass(1.5, `rgba(255,255,255,${gridAlpha * .6})`);
     }
-    if (mirror) {
+    if (mirror && !playing) {
       ctx.strokeStyle = '#ff3d8b'; ctx.lineWidth = Math.max(1, dpr);
       ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.beginPath();
       ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
@@ -790,12 +791,12 @@
   function startPlay() {
     if (proj.frames.length < 2) { toast('Add a second frame to play'); return; }
     playStart = fi; playDir = 1; playing = setInterval(tick, 1000 / proj.fps);
-    overlay.classList.add('playing'); render();
+    overlay.classList.add('playing'); document.body.classList.add('playing'); render();
   }
   function stopPlay() {
     if (!playing) return;
     clearInterval(playing); playing = null; fi = playStart;
-    overlay.classList.remove('playing');
+    overlay.classList.remove('playing'); document.body.classList.remove('playing');
     if (proj) { render(); updateUI(); }
   }
 
