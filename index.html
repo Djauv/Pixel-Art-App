@@ -116,6 +116,7 @@
   #overlay.playing #sheet { display: none; }
   #overlay.playing #stopPlay { display: block; width: calc(100% - 24px); max-width: 400px; margin-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   #sheet {
+    position: relative; top: 0;
     width: 100%; max-width: 520px; max-height: 88%; overflow: auto;
     background: var(--panel); border: 2px solid var(--ink); border-bottom: 0;
     border-radius: 14px 14px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
@@ -809,7 +810,7 @@
     projects: { html: projectsHTML },
     newproj: { html: newProjHTML },
     layers: { clear: true, html: layersHTML },
-    frames: { clear: true, html: framesHTML, init: () => { const s = sheet.querySelector('.fth.sel'); if (s) s.scrollIntoView({ inline: 'center', block: 'nearest' }); } },
+    frames: { clear: true, html: framesHTML, init: () => { const s = sheet.querySelector('.fth.sel'), st = sheet.querySelector('.strip'); if (s && st) st.scrollLeft += s.getBoundingClientRect().left - st.getBoundingClientRect().left - (st.clientWidth - s.offsetWidth) / 2; } },
     palettes: { html: palettesHTML }
   };
   async function go(name) {
@@ -817,13 +818,13 @@
     curSheet = name;
     const html = await s.html();
     if (curSheet !== name) return;
-    sheet.innerHTML = html; sheet.scrollTop = keep;
+    resetSheetPos(); sheet.innerHTML = html; sheet.scrollTop = keep;
     overlay.classList.toggle('clear', !!s.clear); overlay.hidden = false;
     if (s.init) s.init();
   }
   function closeSheet() {
     curSheet = null; rmMode = false; confirmDel = false;
-    stopPlay();
+    stopPlay(); resetSheetPos();
     overlay.hidden = true; overlay.classList.remove('clear'); sheet.innerHTML = '';
     drawPalette(); updateUI(); flush();
   }
@@ -833,6 +834,9 @@
   });
   $('#stopPlay').addEventListener('click', () => { stopPlay(); go('frames'); });
 
+  // Sheet offset is plain layout (not a transform) and is always cleared, so taps can't land away from what's drawn.
+  function resetSheetPos() { sheet.style.transition = 'none'; sheet.style.top = '0px'; }
+
   /* swipe down on a sheet to close it */
   (() => {
     let y0 = 0, x0 = 0, dy = 0, mode = 0, t0 = 0; // mode: 0 undecided, 1 dragging, -1 ignore
@@ -840,7 +844,7 @@
       if (e.touches.length !== 1) { mode = -1; return; }
       y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; t0 = Date.now();
       mode = e.target.closest('input[type=range], .sv, .hue') ? -1 : 0;
-      sheet.style.transition = 'none';
+      resetSheetPos();
     }, { passive: true });
     sheet.addEventListener('touchmove', e => {
       if (mode === -1) return;
@@ -853,19 +857,19 @@
         if (mode === -1) return;
       }
       e.preventDefault();
-      sheet.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      sheet.style.top = Math.max(0, dy) + 'px';
     }, { passive: false });
     const end = () => {
       if (mode !== 1) { mode = 0; return; }
       mode = 0;
       const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
-      sheet.style.transition = 'transform .15s ease-out';
+      sheet.style.transition = 'top .15s ease-out';
       if (dy > 90 || fast) {
-        sheet.style.transform = 'translateY(100%)';
-        setTimeout(() => { closeSheet(); sheet.style.transition = ''; sheet.style.transform = ''; }, 150);
+        sheet.style.top = sheet.offsetHeight + 'px';
+        setTimeout(() => { closeSheet(); resetSheetPos(); }, 150);
       } else {
-        sheet.style.transform = '';
-        setTimeout(() => { sheet.style.transition = ''; }, 150);
+        sheet.style.top = '0px';
+        setTimeout(resetSheetPos, 160);
       }
     };
     sheet.addEventListener('touchend', end);

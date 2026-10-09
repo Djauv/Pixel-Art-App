@@ -1,7 +1,7 @@
 // Offline support: precache the app shell, then keep it fresh with
 // network-first for the page and stale-while-revalidate for everything else
 // (including the Google Fonts files, cached the first time they load).
-const CACHE = 'pixel-v5';
+const CACHE = 'pixel-v6';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
