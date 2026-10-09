@@ -121,7 +121,7 @@
   #overlay.playing #sheet { display: none; }
   #overlay.playing #stopPlay { display: block; width: calc(100% - 24px); max-width: 400px; margin-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   #sheet {
-    position: relative; top: 0;
+    position: relative; top: 0; overscroll-behavior: contain;
     width: 100%; max-width: 520px; max-height: 88%; overflow: auto;
     background: var(--panel); border: 2px solid var(--ink); border-bottom: 0;
     border-radius: 14px 14px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
@@ -961,6 +961,19 @@
 
   // Sheet offset is plain layout (not a transform) and is always cleared, so taps can't land away from what's drawn.
   function resetSheetPos() { sheet.style.transition = 'none'; sheet.style.top = '0px'; }
+
+  // Keep touches in a menu from scrolling the page behind it (iOS rubber-bands it otherwise).
+  (() => {
+    let y0 = 0;
+    overlay.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; }, { passive: true });
+    overlay.addEventListener('touchmove', e => {
+      const t = e.target;
+      if (!sheet.contains(t)) { e.preventDefault(); return; }
+      if (t.closest('.strip, input[type=range], .sv, .hue, .txt')) return;
+      const dy = e.touches[0].clientY - y0, max = sheet.scrollHeight - sheet.clientHeight;
+      if (max <= 1 || (sheet.scrollTop <= 0 && dy > 0) || (sheet.scrollTop >= max - 1 && dy < 0)) e.preventDefault();
+    }, { passive: false });
+  })();
 
   /* swipe down on a sheet to close it */
   (() => {
