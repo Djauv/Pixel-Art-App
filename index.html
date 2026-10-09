@@ -253,7 +253,7 @@
   let undoStack = [], redoStack = [];
   let exportSize = 512, exportMode = 'frame', newSize = 32;
   let gifBlob = null, gifURL = '';
-  let playing = null, playStart = 0;
+  let playing = null, playStart = 0, playDir = 1;
   let curSheet = null, confirmDel = false;
 
   const cel = () => proj.frames[fi].cels[li];
@@ -776,12 +776,17 @@
     fi = j; afterChange();
   }
   function tick() {
-    fi = (fi + 1) % proj.frames.length; render(); updateUI();
+    const n = proj.frames.length;
+    if (proj.boomerang) {
+      if (fi + playDir >= n || fi + playDir < 0) playDir = -playDir;
+      fi = Math.max(0, Math.min(n - 1, fi + playDir));
+    } else fi = (fi + 1) % n;
+    render(); updateUI();
     document.querySelectorAll('.fth').forEach((b, i) => b.classList.toggle('sel', i === fi));
   }
   function startPlay() {
     if (proj.frames.length < 2) { toast('Add a second frame to play'); return; }
-    playStart = fi; playing = setInterval(tick, 1000 / proj.fps); render();
+    playStart = fi; playDir = 1; playing = setInterval(tick, 1000 / proj.fps); render();
   }
   function stopPlay() {
     if (!playing) return;
@@ -902,6 +907,7 @@
       }
       return o;
     });
+    if (proj.boomerang) for (let i = frames.length - 2; i > 0; i--) frames.push(frames[i]);
     const count = pal.length / 3;
     const k = Math.max(1, Math.ceil(Math.log2(count)));
     while (pal.length < (1 << k) * 3) pal.push(0);
@@ -1112,6 +1118,7 @@
       <div class="two"><button data-act="fleft" ${fi === 0 ? 'disabled' : ''}>Move left</button><button data-act="fright" ${fi === last ? 'disabled' : ''}>Move right</button></div>
       <div class="two"><button data-act="fdel">Delete frame</button><button data-act="play" class="${playing ? 'on' : ''}">${playing ? 'Stop' : 'Play'}</button></div>
       <div class="two"><button data-act="onion" class="${onion ? 'on' : ''}">Onion skin ${onion ? 'on' : 'off'}</button><button data-act="close">Done</button></div>
+      <div class="two" style="margin-top:0"><button data-act="boom" class="${proj.boomerang ? 'on' : ''}">Boomerang ${proj.boomerang ? 'on' : 'off'}</button></div>
       <h3>Speed <span id="fval">${proj.fps} fps</span></h3>
       <input class="range" id="fps" type="range" min="1" max="24" value="${proj.fps}" aria-label="Frames per second">`;
   }
@@ -1154,7 +1161,7 @@
     list = list.filter(p => p.id !== proj.id); list.push(proj);
     const data = {
       v: 1, palettes,
-      projects: list.map(p => ({ id: p.id, name: p.name, n: p.n, fps: p.fps, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
+      projects: list.map(p => ({ id: p.id, name: p.name, n: p.n, fps: p.fps, boomerang: !!p.boomerang, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
     };
     const file = new File([JSON.stringify(data)], 'pixel-backup.json', { type: 'application/json' });
     try {
@@ -1173,7 +1180,7 @@
         if (!SIZES.includes(p.n) || !Array.isArray(p.layers) || !Array.isArray(p.frames)) continue;
         const rec = {
           id: String(p.id || uid()), name: String(p.name || 'Restored').slice(0, 40), n: p.n,
-          fps: clamp(+p.fps || 8, 1, 24), updated: +p.updated || Date.now(),
+          fps: clamp(+p.fps || 8, 1, 24), boomerang: !!p.boomerang, updated: +p.updated || Date.now(),
           layers: p.layers.map(l => ({ name: String(l.name || 'Layer').slice(0, 24), vis: l.vis !== false })),
           frames: p.frames.map(fr => ({ cels: fr.cels.map(c => Uint32Array.from(c, v => v ? (0x1000000 | (v & 0xffffff)) : 0)) }))
         };
@@ -1244,6 +1251,7 @@
       case 'fleft': frameMove(-1); break;
       case 'fright': frameMove(1); break;
       case 'play': if (playing) stopPlay(); else startPlay(); go('frames'); break;
+      case 'boom': proj.boomerang = !proj.boomerang; save(); go('frames'); break;
       case 'onion': onion = !onion; render(); save(false); go('frames'); break;
       case 'palsel': activePal = id; rmMode = false; drawPalette(); save(false); go('palettes'); break;
       case 'palpick': setColor(pal().colors[i]); go('palettes'); break;
