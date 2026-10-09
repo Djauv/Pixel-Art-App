@@ -45,11 +45,11 @@
     color-scheme: dark;
   }
   *, *::before, *::after { box-sizing: border-box; }
-  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  html { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
     height: 100%; margin: 0; background: var(--bg); color: var(--ink);
     font-family: "Pixelify Sans", ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 16px; overscroll-behavior: none;
+    font-size: 16px; overscroll-behavior: none; overflow: hidden;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
@@ -943,7 +943,7 @@
     curSheet = name;
     const html = await s.html();
     if (curSheet !== name) return;
-    resetSheetPos(); sheet.innerHTML = html; sheet.scrollTop = keep;
+    pinPage(); resetSheetPos(); sheet.innerHTML = html; sheet.scrollTop = keep;
     overlay.classList.toggle('clear', !!s.clear); overlay.hidden = false;
     if (s.init) s.init();
   }
@@ -1526,6 +1526,18 @@
     if (e.target.tagName === 'INPUT') return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   });
+
+  // On iOS the page itself can end up scrolled or zoomed a few pixels (rubber-banding, keyboard, pinch),
+  // which makes taps land away from what's drawn. Keep it pinned to the origin at all times.
+  const pinPage = () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); };
+  window.addEventListener('scroll', pinPage, { passive: true });
+  window.addEventListener('focusout', () => setTimeout(pinPage, 50));
+  window.addEventListener('orientationchange', () => setTimeout(pinPage, 300));
+  if (window.visualViewport) { visualViewport.addEventListener('resize', pinPage); visualViewport.addEventListener('scroll', pinPage); }
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
+  document.addEventListener('touchmove', e => {
+    if (!e.target.closest('#sheet, #palette, #selbar, .strip, input[type=range], .txt')) e.preventDefault();
+  }, { passive: false });
 
   boot();
 
