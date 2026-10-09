@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pixel">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#dfe4ec">
+<title>Pixel</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #dfe4ec;
+    --panel: #f4f6fa;
+    --ink: #1a2030;
+    --muted: #5d6679;
+    --accent: #e0407a;
+    --accent-ink: #ffffff;
+    --chk1: #ffffff;
+    --chk2: #d3d9e3;
+    --stage: #c9d0dc;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151d; --panel: #1c212d; --ink: #e8ecf5; --muted: #98a2b8;
+      --accent: #ff5c97; --accent-ink: #1a0610;
+      --chk1: #3a4152; --chk2: #2c3240; --stage: #0c0e14;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151d; --panel: #1c212d; --ink: #e8ecf5; --muted: #98a2b8;
+    --accent: #ff5c97; --accent-ink: #1a0610;
+    --chk1: #3a4152; --chk2: #2c3240; --stage: #0c0e14;
+    color-scheme: dark;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Pixelify Sans", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 16px; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #app { height: 100%; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 8px; gap: 8px; }
+  header .title { font-size: 22px; font-weight: 600; max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row { display: flex; gap: 8px; }
+
+  button {
+    font: inherit; color: var(--ink); background: var(--panel);
+    border: 2px solid var(--ink); border-radius: 6px;
+    min-height: 40px; padding: 0 12px; cursor: pointer;
+    box-shadow: 0 3px 0 var(--ink);
+    touch-action: manipulation;
+    transition: transform .06s, box-shadow .06s;
+  }
+  button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 0 0 var(--ink); }
+  button:disabled { opacity: .35; }
+  button:focus-visible, .swatch:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button.on { background: var(--accent); color: var(--accent-ink); }
+
+  #stageWrap { position: relative; flex: 1; min-height: 0; margin: 0 10px; border-radius: 8px; overflow: hidden; background: var(--stage); }
+  #stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+  canvas#cv { position: absolute; left: 0; top: 0; display: block; image-rendering: pixelated; box-shadow: 0 0 0 2px var(--ink); touch-action: none; transform-origin: 0 0; will-change: transform; }
+
+  #zoom { position: absolute; right: 8px; bottom: 11px; display: flex; gap: 6px; }
+  #zoom button { min-height: 36px; min-width: 36px; padding: 0 8px; }
+
+  footer { padding: 6px 0 8px; }
+  #palette {
+    display: flex; gap: 8px; overflow-x: auto; padding: 4px 12px 8px; align-items: center;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  #palette::-webkit-scrollbar { display: none; }
+  .swatch {
+    flex: none; width: 36px; height: 36px; border-radius: 6px; padding: 0; min-height: 0;
+    border: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
+  }
+  .swatch:active:not(:disabled) { transform: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+  .swatch[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .custom {
+    position: relative; flex: none; width: 36px; height: 36px; border-radius: 6px; overflow: hidden;
+    padding: 0; min-height: 0; border: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
+    background: conic-gradient(#ff004d, #ffa300, #ffec27, #00e436, #29adff, #83769c, #ff004d);
+  }
+  .custom i { position: absolute; inset: 5px; border-radius: 3px; background: var(--cur, #ff004d); box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .custom:active:not(:disabled) { transform: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+  .chip { flex: none; height: 36px; min-height: 0; padding: 0 12px; font-size: 14px; border-radius: 18px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 2px 12px 4px; }
+  #tools button { padding: 0; }
+  #nav { display: grid; grid-template-columns: 1.25fr 44px 1.25fr 44px; gap: 8px; padding: 8px 12px 4px; }
+  #nav button { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #overlay {
+    position: fixed; inset: 0; background: rgba(8,10,16,.55);
+    display: flex; align-items: flex-end; justify-content: center; z-index: 10;
+  }
+  #overlay.clear { background: transparent; }
+  #overlay[hidden] { display: none; }
+  #sheet {
+    width: 100%; max-width: 520px; max-height: 88%; overflow: auto;
+    background: var(--panel); border: 2px solid var(--ink); border-bottom: 0;
+    border-radius: 14px 14px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  #sheet h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; }
+  #sheet h3 { margin: 16px 0 8px; font-size: 16px; font-weight: 400; color: var(--muted); display: flex; justify-content: space-between; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+  .stack { display: grid; gap: 10px; margin-top: 16px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .hint { color: var(--muted); font-size: 14px; margin: 10px 0 0; line-height: 1.4; }
+  .range { width: 100%; height: 36px; margin: 4px 0 0; accent-color: var(--accent); }
+  .txt {
+    width: 100%; height: 42px; font: inherit; color: var(--ink); background: var(--bg);
+    border: 2px solid var(--ink); border-radius: 6px; padding: 0 10px;
+    -webkit-user-select: text; user-select: text;
+  }
+  .chk { background: repeating-conic-gradient(var(--chk1) 0% 25%, var(--chk2) 0% 50%) 0 0 / 12px 12px; }
+  .preview {
+    margin-top: 12px; border-radius: 6px; padding: 12px; display: flex; justify-content: center;
+    background: repeating-conic-gradient(var(--chk1) 0% 25%, var(--chk2) 0% 50%) 0 0 / 16px 16px;
+    border: 2px solid var(--ink);
+  }
+  .preview img { max-width: 100%; max-height: 36vh; image-rendering: pixelated; -webkit-user-select: auto; user-select: auto; -webkit-touch-callout: default; }
+
+  .plist { display: grid; gap: 8px; margin-top: 8px; }
+  .prow { display: flex; align-items: center; gap: 12px; text-align: left; padding: 8px; min-height: 60px; }
+  .prow img { width: 48px; height: 48px; image-rendering: pixelated; border-radius: 4px; flex: none; }
+  .prow > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
+  .prow b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow small { color: var(--muted); font-size: 13px; }
+  .prow.on { background: var(--accent); color: var(--accent-ink); }
+  .prow.on small { color: inherit; opacity: .85; }
+  .mini { display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: rgba(128,128,128,.25); }
+  .mini i { flex: 1; }
+  .swgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 8px; margin-top: 8px; }
+  .swgrid .swatch { width: 100%; height: 40px; }
+  .swgrid.rm .swatch { outline: 2px dashed var(--accent); outline-offset: 1px; }
+
+  .lrow { display: grid; grid-template-columns: 84px 1fr 52px 64px; gap: 6px; margin-top: 8px; }
+  .lrow button { padding: 0 6px; }
+  .lrow .lname { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; }
+  .lrow.sel .lname { background: var(--accent); color: var(--accent-ink); }
+  .strip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; }
+  .fth { flex: none; width: 68px; min-height: 0; padding: 4px; display: grid; justify-items: center; gap: 2px; }
+  .fth img { width: 56px; height: 56px; image-rendering: pixelated; border-radius: 3px; }
+  .fth small { font-size: 12px; }
+  .fth.sel { background: var(--accent); color: var(--accent-ink); }
+
+  .sv { position: relative; height: 190px; border-radius: 8px; border: 2px solid var(--ink); touch-action: none; }
+  .hue {
+    position: relative; height: 34px; margin-top: 16px; border-radius: 8px; border: 2px solid var(--ink); touch-action: none;
+    background: linear-gradient(to right, hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%));
+  }
+  .sv i, .hue i {
+    position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+    border: 3px solid #fff; box-shadow: 0 0 0 1.5px #000, inset 0 0 0 1.5px #000; pointer-events: none;
+  }
+  .hue i { top: 50%; }
+  .cprev { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .cprev span { width: 44px; height: 44px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.4); }
+  .cprev code { font: inherit; font-size: 18px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: calc(215px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%) translateY(8px); opacity: 0; pointer-events: none;
+    background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px;
+    font-size: 15px; transition: opacity .15s, transform .15s; z-index: 20; max-width: 90%; text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  @media (prefers-reduced-motion: reduce) { button, #toast { transition: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button id="proj" class="title" aria-label="Projects">Pixel</button>
+    <div class="row">
+      <button id="undo" aria-label="Undo">Undo</button>
+      <button id="redo" aria-label="Redo">Redo</button>
+      <button id="more" aria-label="Menu">More</button>
+    </div>
+  </header>
+
+  <div id="stageWrap">
+    <div id="stage"><canvas id="cv"></canvas></div>
+    <div id="zoom">
+      <button id="zout" aria-label="Zoom out">−</button>
+      <button id="zin" aria-label="Zoom in">+</button>
+      <button id="zfit" aria-label="Fit canvas to screen">Fit</button>
+    </div>
+  </div>
+
+  <footer>
+    <div id="palette"></div>
+    <div id="tools">
+      <button data-tool="draw" class="on">Draw</button>
+      <button data-tool="erase">Erase</button>
+      <button data-tool="fill">Fill</button>
+      <button data-tool="pick">Pick</button>
+      <button data-tool="pan">Pan</button>
+    </div>
+    <div id="nav">
+      <button id="bLayers">Layers</button>
+      <button id="fPrev" aria-label="Previous frame">‹</button>
+      <button id="bFrames">Frames</button>
+      <button id="fNext" aria-label="Next frame">›</button>
+    </div>
+  </footer>
+</div>
+
+<div id="overlay" hidden><div id="sheet"></div></div>
+<div id="toast" role="status"></div>
+<input type="file" id="rfile" accept=".json,application/json" hidden>
+
+<script>
+(() => {
+  const PICO = ['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#fff1e8',
+                '#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa'];
+  const SIZES = [16, 32, 48, 64];
+  const $ = s => document.querySelector(s);
+  const stage = $('#stage'), cv = $('#cv'), ctx = cv.getContext('2d');
+  const off = document.createElement('canvas'), octx = off.getContext('2d');
+  const offO = document.createElement('canvas'), octxO = offO.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const h2n = h => 0x1000000 | parseInt(h.slice(1), 16);
+  const n2h = n => '#' + (n & 0xffffff).toString(16).padStart(6, '0');
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const isHex = c => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+
+  /* ---------- state ---------- */
+  let proj = null, fi = 0, li = 0;
+  let N = 32, img, imgO, cell = 10, ox = 0, oy = 0, bmpK = 0;
+  let showGrid = true, mirror = false, gridAlpha = 0.5, onion = false;
+  let tool = 'draw', prevTool = 'draw';
+  let color = '#ff004d';
+  let palettes = [], activePal = '', rmMode = false;
+  let undoStack = [], redoStack = [];
+  let exportSize = 512, exportMode = 'frame', newSize = 32;
+  let gifBlob = null, gifURL = '';
+  let playing = null, playStart = 0;
+  let curSheet = null, confirmDel = false;
+
+  const cel = () => proj.frames[fi].cels[li];
+  const pal = () => palettes.find(p => p.id === activePal) || palettes[0];
+
+  function setSize(n) {
+    N = n; bmpK = 0;
+    off.width = off.height = offO.width = offO.height = n;
+    img = octx.createImageData(n, n);
+    imgO = octxO.createImageData(n, n);
+  }
+
+  /* ---------- compositing ---------- */
+  function compositeOf(p, f) {
+    const n = p.n * p.n, out = new Uint32Array(n), fr = p.frames[f];
+    for (let l = 0; l < p.layers.length; l++) {
+      if (!p.layers[l].vis) continue;
+      const c = fr.cels[l];
+      for (let i = 0; i < n; i++) if (c[i]) out[i] = c[i];
+    }
+    return out;
+  }
+  function fillImage(im, data) {
+    const d = im.data;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i], j = i * 4;
+      if (v) { d[j] = (v >> 16) & 255; d[j+1] = (v >> 8) & 255; d[j+2] = v & 255; d[j+3] = 255; }
+      else { d[j] = d[j+1] = d[j+2] = d[j+3] = 0; }
+    }
+  }
+  function frameCanvasOf(p, f) {
+    const c = document.createElement('canvas'); c.width = c.height = p.n;
+    const x = c.getContext('2d'), im = x.createImageData(p.n, p.n);
+    fillImage(im, compositeOf(p, f)); x.putImageData(im, 0, 0);
+    return c;
+  }
+  function thumbURL(p, f, size) {
+    try {
+      const src = frameCanvasOf(p, f), c = document.createElement('canvas');
+      c.width = c.height = size;
+      const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+      x.drawImage(src, 0, 0, size, size);
+      return c.toDataURL();
+    } catch (_) { return ''; }
+  }
+
+  /* ---------- rendering ---------- */
+  function place() { cv.style.transform = `translate(${ox}px, ${oy}px)`; }
+  function clampOffset() {
+    const sw = stage.clientWidth, sh = stage.clientHeight, css = N * cell, m = Math.min(60, css);
+    ox = clamp(ox, m - css, sw - m); oy = clamp(oy, m - css, sh - m);
+  }
+  function layout() {
+    cell = clamp(cell, 2, 64);
+    const css = N * cell;
+    cv.style.width = css + 'px'; cv.style.height = css + 'px';
+    cv.style.background = `repeating-conic-gradient(var(--chk1) 0% 25%, var(--chk2) 0% 50%) 0 0 / ${cell}px ${cell}px`;
+    clampOffset(); place();
+    const k = Math.max(1, Math.min(Math.floor(2048 / N), Math.round(cell * dpr)));
+    if (k !== bmpK) { bmpK = k; cv.width = cv.height = N * k; }
+    render();
+  }
+  function render() {
+    fillImage(img, compositeOf(proj, fi)); octx.putImageData(img, 0, 0);
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    if (onion && !playing && fi > 0) {
+      fillImage(imgO, compositeOf(proj, fi - 1)); octxO.putImageData(imgO, 0, 0);
+      ctx.globalAlpha = 0.3; ctx.drawImage(offO, 0, 0, W, H); ctx.globalAlpha = 1;
+    }
+    ctx.drawImage(off, 0, 0, W, H);
+    if (showGrid && bmpK >= 3 && cell >= 4) {
+      const k = bmpK;
+      const pass = (o, style) => {
+        ctx.strokeStyle = style; ctx.lineWidth = 1; ctx.beginPath();
+        for (let i = 0; i <= N; i++) {
+          const p = Math.min(i * k + o, W - .5);
+          ctx.moveTo(p, 0); ctx.lineTo(p, H); ctx.moveTo(0, p); ctx.lineTo(W, p);
+        }
+        ctx.stroke();
+      };
+      pass(.5, `rgba(0,0,0,${gridAlpha})`);
+      if (k >= 5) pass(1.5, `rgba(255,255,255,${gridAlpha * .6})`);
+    }
+    if (mirror) {
+      ctx.strokeStyle = '#ff3d8b'; ctx.lineWidth = Math.max(1, dpr);
+      ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.beginPath();
+      ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  function fit() {
+    const w = stage.clientWidth - 32, h = stage.clientHeight - 32;
+    cell = Math.max(2, Math.floor(Math.min(w, h) / N));
+    ox = (stage.clientWidth - N * cell) / 2; oy = (stage.clientHeight - N * cell) / 2;
+    layout();
+  }
+  function zoomAt(newCell, mx, my) {
+    const sr = stage.getBoundingClientRect();
+    const ax = mx - sr.left, ay = my - sr.top;
+    const fx = (ax - ox) / cell, fy = (ay - oy) / cell;
+    cell = clamp(newCell, 2, 64);
+    ox = ax - fx * cell; oy = ay - fy * cell;
+    layout();
+  }
+  function zoomStep(f) {
+    const r = stage.getBoundingClientRect();
+    const next = f > 1 ? Math.max(cell + 1, Math.round(cell * f)) : Math.min(cell - 1, Math.round(cell * f));
+    zoomAt(next, r.left + r.width / 2, r.top + r.height / 2);
+  }
+
+  /* ---------- editing ---------- */
+  function setPx(x, y, v) {
+    if (x < 0 || y < 0 || x >= N || y >= N) return false;
+    const c = cel(); let changed = false;
+    const i = y * N + x;
+    if (c[i] !== v) { c[i] = v; changed = true; }
+    if (mirror) {
+      const j = y * N + (N - 1 - x);
+      if (c[j] !== v) { c[j] = v; changed = true; }
+    }
+    return changed;
+  }
+  function line(a, b, v) {
+    let x0 = a.x, y0 = a.y; const x1 = b.x, y1 = b.y;
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy, changed = false;
+    for (;;) {
+      if (setPx(x0, y0, v)) changed = true;
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    return changed;
+  }
+  function floodFill(x, y, v) {
+    if (x < 0 || y < 0 || x >= N || y >= N) return false;
+    const c = cel(), target = c[y * N + x];
+    if (target === v) return false;
+    const stack = [y * N + x];
+    while (stack.length) {
+      const i = stack.pop();
+      if (c[i] !== target) continue;
+      c[i] = v;
+      const cx = i % N, cy = (i / N) | 0;
+      if (cx > 0) stack.push(i - 1);
+      if (cx < N - 1) stack.push(i + 1);
+      if (cy > 0) stack.push(i - N);
+      if (cy < N - 1) stack.push(i + N);
+    }
+    return true;
+  }
+
+  /* ---------- history ---------- */
+  function cloneState() {
+    return {
+      layers: proj.layers.map(l => ({ ...l })),
+      frames: proj.frames.map(f => ({ cels: f.cels.map(c => c.slice()) })),
+      fi, li
+    };
+  }
+  function applyState(s) {
+    proj.layers = s.layers.map(l => ({ ...l }));
+    proj.frames = s.frames.map(f => ({ cels: f.cels.map(c => c.slice()) }));
+    fi = s.fi; li = s.li;
+  }
+  function pushUndo(e) {
+    undoStack.push(e);
+    if (undoStack.length > 60) undoStack.shift();
+    redoStack = [];
+    updateUI(); save();
+  }
+  const pushStruct = () => pushUndo({ t: 'all', s: cloneState() });
+  function applyEntry(e) {
+    if (e.t === 'cel') {
+      const c = proj.frames[e.f] && proj.frames[e.f].cels[e.l];
+      if (!c) return null;
+      const inv = { t: 'cel', f: e.f, l: e.l, d: c.slice() };
+      c.set(e.d); fi = e.f; li = e.l;
+      return inv;
+    }
+    const inv = { t: 'all', s: cloneState() };
+    applyState(e.s);
+    return inv;
+  }
+  function undo() {
+    if (!undoStack.length || playing) return;
+    const inv = applyEntry(undoStack.pop());
+    if (inv) redoStack.push(inv);
+    afterChange();
+  }
+  function redo() {
+    if (!redoStack.length || playing) return;
+    const inv = applyEntry(redoStack.pop());
+    if (inv) undoStack.push(inv);
+    afterChange();
+  }
+  function afterChange() {
+    fi = clamp(fi, 0, proj.frames.length - 1);
+    li = clamp(li, 0, proj.layers.length - 1);
+    render(); updateUI(); save();
+    if (curSheet && !overlay.hidden) go(curSheet);
+  }
+  function updateUI() {
+    if (!proj) return;
+    $('#proj').textContent = proj.name;
+    $('#undo').disabled = !undoStack.length;
+    $('#redo').disabled = !redoStack.length;
+    $('#bLayers').textContent = 'Layer: ' + proj.layers[li].name;
+    $('#bFrames').textContent = `Frame ${fi + 1}/${proj.frames.length}`;
+    $('#fPrev').disabled = fi === 0;
+    $('#fNext').disabled = fi >= proj.frames.length - 1;
+  }
+
+  /* ---------- pointer input ---------- */
+  const ptrs = new Map();
+  let stroke = null, pan = null, pinch = null;
+
+  function cellAt(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: Math.floor((e.clientX - r.left) / r.width * N), y: Math.floor((e.clientY - r.top) / r.height * N) };
+  }
+  function startStroke(e) {
+    const c = cellAt(e);
+    if (tool === 'pick') {
+      if (c.x >= 0 && c.y >= 0 && c.x < N && c.y < N) {
+        const v = compositeOf(proj, fi)[c.y * N + c.x];
+        if (v) setColor(n2h(v)); else toast('That pixel is empty');
+        setTool(prevTool === 'pick' ? 'draw' : prevTool);
+      }
+      return;
+    }
+    if (!proj.layers[li].vis) { toast('This layer is hidden. Show it in Layers.'); return; }
+    stroke = { snap: { t: 'cel', f: fi, l: li, d: cel().slice() }, last: c, changed: false };
+    if (tool === 'fill') {
+      stroke.changed = floodFill(c.x, c.y, h2n(color));
+      render(); endStroke(); return;
+    }
+    const v = tool === 'erase' ? 0 : h2n(color);
+    stroke.v = v;
+    if (setPx(c.x, c.y, v)) stroke.changed = true;
+    render();
+  }
+  function moveStroke(e) {
+    const c = cellAt(e);
+    if (c.x === stroke.last.x && c.y === stroke.last.y) return;
+    if (line(stroke.last, c, stroke.v)) stroke.changed = true;
+    stroke.last = c; render();
+  }
+  function endStroke() {
+    if (!stroke) return;
+    if (stroke.changed) pushUndo(stroke.snap);
+    stroke = null;
+  }
+  function cancelStroke() {
+    if (!stroke) return;
+    proj.frames[stroke.snap.f].cels[stroke.snap.l].set(stroke.snap.d);
+    stroke = null; render();
+  }
+  const two = () => { const [a, b] = [...ptrs.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+
+  stage.addEventListener('pointerdown', e => {
+    stage.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 1) {
+      if (tool === 'pan') pan = { x: e.clientX, y: e.clientY };
+      else startStroke(e);
+    } else if (ptrs.size === 2) {
+      cancelStroke(); pan = null;
+      const t = two(), sr = stage.getBoundingClientRect();
+      pinch = { d: t.d, cell, fx: (t.x - sr.left - ox) / cell, fy: (t.y - sr.top - oy) / cell };
+    }
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && ptrs.size >= 2) {
+      const t = two(), sr = stage.getBoundingClientRect();
+      cell = clamp(pinch.cell * t.d / pinch.d, 2, 64);
+      ox = t.x - sr.left - pinch.fx * cell; oy = t.y - sr.top - pinch.fy * cell;
+      layout();
+    } else if (pan) {
+      ox += e.clientX - pan.x; oy += e.clientY - pan.y;
+      pan.x = e.clientX; pan.y = e.clientY;
+      clampOffset(); place();
+    } else if (stroke) {
+      moveStroke(e);
+    }
+  });
+  function release(e) {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.delete(e.pointerId);
+    if (ptrs.size < 2) pinch = null;
+    if (ptrs.size === 0) { pan = null; endStroke(); }
+  }
+  stage.addEventListener('pointerup', release);
+  stage.addEventListener('pointercancel', release);
+  stage.addEventListener('contextmenu', e => e.preventDefault());
+
+  /* ---------- tools & palette row ---------- */
+  function setTool(t) {
+    tool = t; if (t !== 'pick') prevTool = t;
+    document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+    stage.style.cursor = t === 'pan' ? 'grab' : 'crosshair';
+  }
+  document.querySelectorAll('#tools button').forEach(b => b.addEventListener('click', () => {
+    const t = b.dataset.tool;
+    if (t === 'pick') { if (tool !== 'pick') prevTool = tool; toast('Tap a pixel to copy its color'); }
+    setTool(t);
+  }));
+
+  function setColor(h) {
+    color = h.toLowerCase();
+    if (tool === 'erase') setTool('draw');
+    drawPalette(); save(false);
+  }
+  function drawPalette() {
+    const p = $('#palette'); p.innerHTML = '';
+    const wrap = document.createElement('button');
+    wrap.className = 'custom'; wrap.setAttribute('aria-label', 'Open color picker');
+    wrap.style.setProperty('--cur', color);
+    wrap.innerHTML = '<i></i>';
+    wrap.addEventListener('click', () => go('color'));
+    p.appendChild(wrap);
+    const chip = document.createElement('button');
+    chip.className = 'chip'; chip.textContent = pal().name; chip.setAttribute('aria-label', 'Palettes');
+    chip.addEventListener('click', () => go('palettes'));
+    p.appendChild(chip);
+    pal().colors.forEach(c => {
+      const b = document.createElement('button');
+      b.className = 'swatch'; b.style.background = c; b.setAttribute('aria-label', 'Color ' + c);
+      b.setAttribute('aria-pressed', String(c === color));
+      b.addEventListener('click', () => setColor(c));
+      p.appendChild(b);
+    });
+  }
+
+  /* ---------- storage (IndexedDB) ---------- */
+  let db = null;
+  function idb() {
+    return new Promise(res => {
+      try {
+        const r = indexedDB.open('pixel-db', 1);
+        r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('projects', { keyPath: 'id' }); d.createObjectStore('meta'); };
+        r.onsuccess = () => { db = r.result; res(true); };
+        r.onerror = () => res(false); r.onblocked = () => res(false);
+      } catch (_) { res(false); }
+    });
+  }
+  function tx(store, mode, fn) {
+    return new Promise((res, rej) => {
+      if (!db) return res(undefined);
+      try {
+        const t = db.transaction(store, mode), rq = fn(t.objectStore(store));
+        t.oncomplete = () => res(rq && rq.result);
+        t.onerror = t.onabort = () => rej(t.error);
+      } catch (e) { rej(e); }
+    });
+  }
+  const dbGet = (s, k) => tx(s, 'readonly', o => o.get(k)).catch(() => undefined);
+  const dbAll = s => tx(s, 'readonly', o => o.getAll()).then(r => r || []).catch(() => []);
+  const dbPut = (s, v, k) => tx(s, 'readwrite', o => k === undefined ? o.put(v) : o.put(v, k)).catch(() => {});
+  const dbDel = (s, k) => tx(s, 'readwrite', o => o.delete(k)).catch(() => {});
+
+  let st, dirtyP = false, dirtyS = false;
+  function save(withProject = true) {
+    if (!proj) return;
+    if (withProject) { dirtyP = true; proj.updated = Date.now(); }
+    dirtyS = true;
+    clearTimeout(st); st = setTimeout(flush, 500);
+  }
+  function flush() {
+    clearTimeout(st);
+    if (!proj) return;
+    if (dirtyP) { dirtyP = false; dbPut('projects', proj); }
+    if (dirtyS) {
+      dirtyS = false;
+      dbPut('meta', { palettes, activePal, color, showGrid, mirror, gridAlpha, onion, current: proj.id }, 'settings');
+    }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+  window.addEventListener('pagehide', flush);
+
+  /* ---------- projects ---------- */
+  function makeProject(n, name) {
+    return { id: uid(), name, n, layers: [{ name: 'Layer 1', vis: true }], frames: [{ cels: [new Uint32Array(n * n)] }], fps: 8, updated: Date.now() };
+  }
+  function openProject(p) {
+    stopPlay();
+    proj = p; setSize(p.n); fi = 0; li = 0;
+    undoStack = []; redoStack = [];
+    fit(); updateUI(); save(false);
+  }
+  function defaultPalettes() {
+    return [{ id: 'pico', name: 'Pico-8', colors: PICO.slice() }, { id: 'mine', name: 'My colors', colors: [] }];
+  }
+  function migrateOld() {
+    try {
+      const raw = localStorage.getItem('pixel-v1'); if (!raw) return null;
+      const d = JSON.parse(raw);
+      if (!SIZES.includes(d.n) || !Array.isArray(d.px) || d.px.length !== d.n * d.n) return null;
+      const p = makeProject(d.n, 'My first drawing');
+      p.frames[0].cels[0] = Uint32Array.from(d.px, v => v ? (0x1000000 | (v & 0xffffff)) : 0);
+      if (Array.isArray(d.custom)) palettes.find(x => x.id === 'mine').colors = d.custom.filter(isHex).slice(0, 24);
+      if (isHex(d.color)) color = d.color;
+      if (typeof d.gridAlpha === 'number') gridAlpha = clamp(d.gridAlpha, 0.1, 1);
+      showGrid = d.showGrid !== false; mirror = !!d.mirror;
+      return p;
+    } catch (_) { return null; }
+  }
+  function validProject(p) {
+    try {
+      if (!p || !SIZES.includes(p.n) || !Array.isArray(p.layers) || !p.layers.length || !Array.isArray(p.frames) || !p.frames.length) return false;
+      return p.frames.every(f => f.cels.length === p.layers.length && f.cels.every(c => c.length === p.n * p.n));
+    } catch (_) { return false; }
+  }
+  async function boot() {
+    const ok = await idb();
+    const s = ok ? await dbGet('meta', 'settings') : null;
+    palettes = defaultPalettes();
+    if (s) {
+      if (Array.isArray(s.palettes) && s.palettes.length) palettes = s.palettes;
+      if (isHex(s.color)) color = s.color;
+      showGrid = s.showGrid !== false; mirror = !!s.mirror; onion = !!s.onion;
+      if (typeof s.gridAlpha === 'number') gridAlpha = clamp(s.gridAlpha, 0.1, 1);
+      if (s.activePal) activePal = s.activePal;
+    }
+    if (!palettes.find(p => p.id === activePal)) activePal = palettes[0].id;
+    const list = (ok ? await dbAll('projects') : []).filter(validProject);
+    let p = null;
+    if (s && s.current) p = list.find(x => x.id === s.current);
+    if (!p && list.length) p = list.sort((a, b) => b.updated - a.updated)[0];
+    if (!p && !s) p = migrateOld();
+    if (!p) p = makeProject(32, 'Project 1');
+    setTool('draw'); drawPalette();
+    openProject(p);
+    dirtyP = true; save();
+    if (!ok) toast('Saving isn’t available in this browser');
+  }
+
+  async function createProject() {
+    flush();
+    const list = await dbAll('projects');
+    const p = makeProject(newSize, 'Project ' + (list.length + 1));
+    openProject(p); dirtyP = true; save();
+    closeSheet(); toast(`New ${newSize}×${newSize} project`);
+  }
+  async function openById(id) {
+    if (id === proj.id) { closeSheet(); return; }
+    flush();
+    const p = await dbGet('projects', id);
+    if (!validProject(p)) { toast('Couldn’t open that project'); return; }
+    openProject(p); closeSheet();
+  }
+  function dupProject() {
+    flush();
+    const p = {
+      ...proj, id: uid(), name: (proj.name + ' copy').slice(0, 40), updated: Date.now(),
+      layers: proj.layers.map(l => ({ ...l })),
+      frames: proj.frames.map(f => ({ cels: f.cels.map(c => c.slice()) }))
+    };
+    dbPut('projects', p);
+    openProject(p); closeSheet(); toast('Duplicated');
+  }
+  async function delProject(btn) {
+    if (!confirmDel) {
+      confirmDel = true; btn.textContent = 'Tap again to delete';
+      setTimeout(() => { confirmDel = false; if (btn.isConnected) btn.textContent = 'Delete'; }, 3000);
+      return;
+    }
+    confirmDel = false;
+    const id = proj.id;
+    await dbDel('projects', id);
+    const list = (await dbAll('projects')).filter(validProject).sort((a, b) => b.updated - a.updated);
+    const next = list[0] || makeProject(32, 'Project 1');
+    dirtyP = false;
+    openProject(next); dirtyP = true; save();
+    closeSheet(); toast('Project deleted');
+  }
+
+  /* ---------- layers & frames ---------- */
+  function layerAdd(dup) {
+    pushStruct();
+    const idx = li + 1;
+    proj.layers.splice(idx, 0, { name: dup ? (proj.layers[li].name + ' copy').slice(0, 24) : 'Layer ' + (proj.layers.length + 1), vis: true });
+    proj.frames.forEach(fr => fr.cels.splice(idx, 0, dup ? fr.cels[li].slice() : new Uint32Array(N * N)));
+    li = idx; afterChange();
+  }
+  function layerDel() {
+    if (proj.layers.length < 2) { toast('A project needs at least one layer'); return; }
+    pushStruct();
+    proj.layers.splice(li, 1); proj.frames.forEach(fr => fr.cels.splice(li, 1));
+    li = Math.min(li, proj.layers.length - 1); afterChange();
+  }
+  function layerMove(i, d) {
+    const j = i + d; if (j < 0 || j >= proj.layers.length) return;
+    pushStruct();
+    [proj.layers[i], proj.layers[j]] = [proj.layers[j], proj.layers[i]];
+    proj.frames.forEach(fr => { [fr.cels[i], fr.cels[j]] = [fr.cels[j], fr.cels[i]]; });
+    if (li === i) li = j; else if (li === j) li = i;
+    afterChange();
+  }
+  function frameAdd(dup) {
+    pushStruct();
+    const src = proj.frames[fi];
+    proj.frames.splice(fi + 1, 0, { cels: proj.layers.map((_, l) => dup ? src.cels[l].slice() : new Uint32Array(N * N)) });
+    fi++; afterChange();
+  }
+  function frameDel() {
+    if (proj.frames.length < 2) { toast('A project needs at least one frame'); return; }
+    pushStruct();
+    proj.frames.splice(fi, 1); fi = Math.min(fi, proj.frames.length - 1); afterChange();
+  }
+  function frameMove(d) {
+    const j = fi + d; if (j < 0 || j >= proj.frames.length) return;
+    pushStruct();
+    [proj.frames[fi], proj.frames[j]] = [proj.frames[j], proj.frames[fi]];
+    fi = j; afterChange();
+  }
+  function tick() {
+    fi = (fi + 1) % proj.frames.length; render(); updateUI();
+    document.querySelectorAll('.fth').forEach((b, i) => b.classList.toggle('sel', i === fi));
+  }
+  function startPlay() {
+    if (proj.frames.length < 2) { toast('Add a second frame to play'); return; }
+    playStart = fi; playing = setInterval(tick, 1000 / proj.fps); render();
+  }
+  function stopPlay() {
+    if (!playing) return;
+    clearInterval(playing); playing = null; fi = playStart;
+    if (proj) { render(); updateUI(); }
+  }
+
+  /* ---------- sheets ---------- */
+  const overlay = $('#overlay'), sheet = $('#sheet');
+  const SHEETS = {
+    menu: { clear: true, html: menuHTML },
+    export: { clear: true, html: exportHTML },
+    color: { clear: true, html: colorHTML, init: initColorPicker },
+    projects: { html: projectsHTML },
+    newproj: { html: newProjHTML },
+    layers: { clear: true, html: layersHTML },
+    frames: { clear: true, html: framesHTML, init: () => { const s = sheet.querySelector('.fth.sel'); if (s) s.scrollIntoView({ inline: 'center', block: 'nearest' }); } },
+    palettes: { html: palettesHTML }
+  };
+  async function go(name) {
+    const s = SHEETS[name], keep = curSheet === name && !overlay.hidden ? sheet.scrollTop : 0;
+    curSheet = name;
+    const html = await s.html();
+    if (curSheet !== name) return;
+    sheet.innerHTML = html; sheet.scrollTop = keep;
+    overlay.classList.toggle('clear', !!s.clear); overlay.hidden = false;
+    if (s.init) s.init();
+  }
+  function closeSheet() {
+    curSheet = null; rmMode = false; confirmDel = false;
+    stopPlay();
+    overlay.hidden = true; overlay.classList.remove('clear'); sheet.innerHTML = '';
+    drawPalette(); updateUI(); flush();
+  }
+  overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeSheet(); });
+
+  function menuHTML() {
+    return `
+      <h2>Menu</h2>
+      <h3>View</h3>
+      <div class="two" style="margin-top:0">
+        <button data-act="grid" class="${showGrid ? 'on' : ''}">Grid ${showGrid ? 'on' : 'off'}</button>
+        <button data-act="mirror" class="${mirror ? 'on' : ''}">Mirror ${mirror ? 'on' : 'off'}</button>
+      </div>
+      <h3>Grid opacity <span id="gval">${Math.round(gridAlpha * 100)}%</span></h3>
+      <input class="range" id="galpha" type="range" min="10" max="100" step="5" value="${Math.round(gridAlpha * 100)}" aria-label="Grid opacity">
+      <div class="stack">
+        <button data-act="projects">Projects</button>
+        <button data-act="export">Export image</button>
+        <button data-act="clearlayer">Clear this layer</button>
+        <div class="two" style="margin-top:0">
+          <button data-act="backup">Back up</button>
+          <button data-act="restore">Restore</button>
+        </div>
+        <button data-act="close">Done</button>
+      </div>`;
+  }
+
+  /* export */
+  const scaleFor = size => Math.max(1, Math.round(size / N));
+  function exportCanvas(scale) {
+    const c = document.createElement('canvas'), nF = exportMode === 'sheet' ? proj.frames.length : 1;
+    c.width = N * scale * nF; c.height = N * scale;
+    const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+    for (let k = 0; k < nF; k++) {
+      const f = exportMode === 'sheet' ? k : fi;
+      x.drawImage(frameCanvasOf(proj, f), k * N * scale, 0, N * scale, N * scale);
+    }
+    return c;
+  }
+  function lzwEncode(idx, minCode) {
+    const clear = 1 << minCode, eoi = clear + 1;
+    let size = minCode + 1, next = eoi + 1, cur = 0, bits = 0;
+    const out = [], dict = new Map();
+    const emit = c => { cur |= c << bits; bits += size; while (bits >= 8) { out.push(cur & 255); cur >>= 8; bits -= 8; } };
+    emit(clear);
+    let prefix = idx[0];
+    for (let i = 1; i < idx.length; i++) {
+      const k = idx[i], key = (prefix << 8) | k, hit = dict.get(key);
+      if (hit !== undefined) { prefix = hit; continue; }
+      emit(prefix);
+      if (next < 4096) { dict.set(key, next++); if (next > (1 << size) && size < 12) size++; }
+      else { emit(clear); dict.clear(); size = minCode + 1; next = eoi + 1; }
+      prefix = k;
+    }
+    emit(prefix);
+    if (next < 4096) { next++; if (next > (1 << size) && size < 12) size++; }
+    emit(eoi);
+    if (bits > 0) out.push(cur & 255);
+    return out;
+  }
+  function encodeGIF(scale) {
+    const W = N * scale, H = W;
+    const comps = proj.frames.map((_, f) => compositeOf(proj, f));
+    const uniq = new Set();
+    for (const a of comps) for (const v of a) if (v) uniq.add(v);
+    const quant = uniq.size > 255;
+    const key = v => {
+      if (!quant) return v;
+      const q = ((((v >> 16) & 255) >> 5) << 5) | ((((v >> 8) & 255) >> 5) << 2) | ((v & 255) >> 6);
+      return q || 1;
+    };
+    const pal = [0, 0, 0], map = new Map();
+    const colorIdx = v => {
+      const k = key(v); let i = map.get(k);
+      if (i === undefined) {
+        i = pal.length / 3; map.set(k, i);
+        if (quant) pal.push(Math.round(((k >> 5) & 7) * 255 / 7), Math.round(((k >> 2) & 7) * 255 / 7), Math.round((k & 3) * 255 / 3));
+        else pal.push((v >> 16) & 255, (v >> 8) & 255, v & 255);
+      }
+      return i;
+    };
+    const frames = comps.map(a => {
+      const o = new Uint8Array(W * H), row = new Uint8Array(W);
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) { const v = a[y * N + x]; row.fill(v ? colorIdx(v) : 0, x * scale, x * scale + scale); }
+        for (let s = 0; s < scale; s++) o.set(row, (y * scale + s) * W);
+      }
+      return o;
+    });
+    const count = pal.length / 3;
+    const k = Math.max(1, Math.ceil(Math.log2(count)));
+    while (pal.length < (1 << k) * 3) pal.push(0);
+    const minCode = Math.max(2, k);
+    const b = [];
+    const w16 = v => { b.push(v & 255, (v >> 8) & 255); };
+    for (const ch of 'GIF89a') b.push(ch.charCodeAt(0));
+    w16(W); w16(H); b.push(0xF0 | (k - 1), 0, 0);
+    for (const v of pal) b.push(v);
+    b.push(0x21, 0xFF, 0x0B);
+    for (const ch of 'NETSCAPE2.0') b.push(ch.charCodeAt(0));
+    b.push(3, 1, 0, 0, 0);
+    const delay = Math.max(2, Math.round(100 / proj.fps));
+    for (const fr of frames) {
+      b.push(0x21, 0xF9, 4, (2 << 2) | 1); w16(delay); b.push(0, 0);
+      b.push(0x2C); w16(0); w16(0); w16(W); w16(H); b.push(0);
+      b.push(minCode);
+      const data = lzwEncode(fr, minCode);
+      for (let i = 0; i < data.length; i += 255) {
+        const n = Math.min(255, data.length - i);
+        b.push(n);
+        for (let j = 0; j < n; j++) b.push(data[i + j]);
+      }
+      b.push(0);
+    }
+    b.push(0x3B);
+    return new Uint8Array(b);
+  }
+  function exportHTML() {
+    const multi = proj.frames.length > 1;
+    if (!multi) exportMode = 'frame';
+    let sizes = [...new Set([256, 512, 1024, 2048].map(s => N * scaleFor(s)))];
+    if (exportMode === 'gif') sizes = sizes.filter(s => s <= 1024);
+    if (!sizes.length) sizes = [N * scaleFor(256)];
+    if (!sizes.includes(N * scaleFor(exportSize))) exportSize = sizes[1] || sizes[0];
+    const scale = scaleFor(exportSize);
+    let url, note = '';
+    if (exportMode === 'gif') {
+      const bytes = encodeGIF(scale);
+      gifBlob = new Blob([bytes], { type: 'image/gif' });
+      if (gifURL) URL.revokeObjectURL(gifURL);
+      gifURL = URL.createObjectURL(gifBlob); url = gifURL;
+      note = `${Math.max(1, Math.round(bytes.length / 1024))} KB. `;
+    } else { gifBlob = null; url = exportCanvas(scale).toDataURL('image/png'); }
+    const canShare = !!(navigator.share && navigator.canShare);
+    return `
+      <h2>Export image</h2>
+      ${multi ? `<div class="seg" style="margin-bottom:8px">
+        <button data-act="emode" data-v="frame" class="${exportMode === 'frame' ? 'on' : ''}">This frame</button>
+        <button data-act="emode" data-v="sheet" class="${exportMode === 'sheet' ? 'on' : ''}">Sprite sheet</button>
+        <button data-act="emode" data-v="gif" class="${exportMode === 'gif' ? 'on' : ''}">GIF</button></div>` : ''}
+      <div class="seg">${sizes.map(s => `<button data-act="esize" data-v="${s}" class="${s === N * scale ? 'on' : ''}">${s}px</button>`).join('')}</div>
+      <div class="preview"><img src="${url}" alt="Your pixel art"></div>
+      <p class="hint">${note}Press and hold the ${exportMode === 'gif' ? 'animation' : 'image'}, then choose Save to Photos.${canShare ? ' Or use Share below.' : ''}</p>
+      <div class="stack">
+        ${canShare ? '<button data-act="share">Share ' + (exportMode === 'gif' ? 'GIF' : 'image') + '</button>' : ''}
+        <button data-act="menu">Back</button>
+      </div>`;
+  }
+  function doShare() {
+    if (exportMode === 'gif' && gifBlob) {
+      const name = (proj.name.replace(/[^\w\- ]+/g, '').trim() || 'pixel-art') + '.gif';
+      const file = new File([gifBlob], name, { type: 'image/gif' });
+      (async () => {
+        try {
+          if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
+          else toast('Sharing isn’t available here. Press and hold the animation instead.');
+        } catch (_) { /* cancelled */ }
+      })();
+      return;
+    }
+    exportCanvas(scaleFor(exportSize)).toBlob(async blob => {
+      if (!blob) return;
+      const name = (proj.name.replace(/[^\w\- ]+/g, '').trim() || 'pixel-art') + '.png';
+      const file = new File([blob], name, { type: 'image/png' });
+      try {
+        if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
+        else toast('Sharing isn’t available here. Press and hold the image instead.');
+      } catch (_) { /* cancelled */ }
+    }, 'image/png');
+  }
+
+  /* color picker */
+  let hsv = { h: 0, s: 1, v: 1 };
+  function hexToHsv(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    let h = 0;
+    if (d) {
+      if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    return { h, s: mx ? d / mx : 0, v: mx };
+  }
+  function hsvToHex(h, s, v) {
+    const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+    const t = x => Math.round(x * 255).toString(16).padStart(2, '0');
+    return '#' + t(f(5)) + t(f(3)) + t(f(1));
+  }
+  function colorHTML() {
+    return `
+      <h2>Color</h2>
+      <div class="sv" id="sv"><i id="svk"></i></div>
+      <div class="hue" id="hue"><i id="huek"></i></div>
+      <div class="cprev"><span id="cswatch"></span><code id="chex"></code></div>
+      <div class="two" style="margin-top:16px">
+        <button data-act="addcolor">Add to palette</button>
+        <button data-act="close">Done</button>
+      </div>`;
+  }
+  function initColorPicker() {
+    hsv = hexToHsv(color);
+    const sv = $('#sv'), hue = $('#hue');
+    const paint = apply => {
+      sv.style.background = `linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, hsl(${hsv.h},100%,50%))`;
+      $('#svk').style.left = hsv.s * 100 + '%'; $('#svk').style.top = (1 - hsv.v) * 100 + '%';
+      $('#huek').style.left = hsv.h / 360 * 100 + '%';
+      if (apply) {
+        color = hsvToHex(hsv.h, hsv.s, hsv.v);
+        if (tool === 'erase') setTool('draw');
+        const c = document.querySelector('.custom'); if (c) c.style.setProperty('--cur', color);
+        save(false);
+      }
+      $('#cswatch').style.background = color; $('#chex').textContent = color.toUpperCase();
+    };
+    const drag = (el, fn) => {
+      el.addEventListener('pointerdown', e => {
+        el.setPointerCapture(e.pointerId); fn(e);
+        const mv = ev => fn(ev);
+        const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
+        el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      });
+    };
+    drag(sv, e => { const r = sv.getBoundingClientRect(); hsv.s = clamp((e.clientX - r.left) / r.width, 0, 1); hsv.v = 1 - clamp((e.clientY - r.top) / r.height, 0, 1); paint(true); });
+    drag(hue, e => { const r = hue.getBoundingClientRect(); hsv.h = clamp((e.clientX - r.left) / r.width, 0, 1) * 360; paint(true); });
+    paint(false);
+  }
+
+  /* projects */
+  async function projectsHTML() {
+    flush();
+    let list = (await dbAll('projects')).filter(validProject);
+    list = list.filter(p => p.id !== proj.id); list.push(proj);
+    list.sort((a, b) => b.updated - a.updated);
+    const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    const rows = list.map(p => `
+      <button class="prow ${p.id === proj.id ? 'on' : ''}" data-act="openproj" data-id="${esc(p.id)}">
+        <img class="chk" src="${thumbURL(p, 0, 96)}" alt="">
+        <span><b>${esc(p.name)}</b><small>${p.n}×${p.n}, ${plural(p.frames.length, 'frame')}, ${plural(p.layers.length, 'layer')}</small></span>
+      </button>`).join('');
+    return `
+      <h2>Projects</h2>
+      <button data-act="newproj" style="width:100%">New project</button>
+      <div class="plist">${rows}</div>
+      <h3>This project</h3>
+      <input class="txt" id="pname" maxlength="40" value="${esc(proj.name)}" aria-label="Project name">
+      <div class="two">
+        <button data-act="dupproj">Duplicate</button>
+        <button data-act="delproj">Delete</button>
+      </div>
+      <div class="stack"><button data-act="close">Done</button></div>`;
+  }
+  function newProjHTML() {
+    return `
+      <h2>New project</h2>
+      <h3>Canvas size</h3>
+      <div class="seg">${SIZES.map(n => `<button data-act="nsize" data-v="${n}" class="${n === newSize ? 'on' : ''}">${n}×${n}</button>`).join('')}</div>
+      <div class="two" style="margin-top:16px">
+        <button data-act="projects">Back</button>
+        <button data-act="create">Create</button>
+      </div>`;
+  }
+
+  /* layers */
+  function layersHTML() {
+    let rows = '';
+    for (let l = proj.layers.length - 1; l >= 0; l--) {
+      const L = proj.layers[l];
+      rows += `
+        <div class="lrow ${l === li ? 'sel' : ''}">
+          <button class="${L.vis ? 'on' : ''}" data-act="lvis" data-i="${l}" aria-label="Toggle ${esc(L.name)}">${L.vis ? 'Shown' : 'Hidden'}</button>
+          <button class="lname" data-act="lsel" data-i="${l}">${esc(L.name)}</button>
+          <button data-act="lup" data-i="${l}" ${l === proj.layers.length - 1 ? 'disabled' : ''}>Up</button>
+          <button data-act="ldown" data-i="${l}" ${l === 0 ? 'disabled' : ''}>Down</button>
+        </div>`;
+    }
+    return `
+      <h2>Layers</h2>
+      ${rows}
+      <h3>Selected layer name</h3>
+      <input class="txt" id="lname" maxlength="24" value="${esc(proj.layers[li].name)}" aria-label="Layer name">
+      <div class="two"><button data-act="ladd">Add layer</button><button data-act="ldup">Duplicate</button></div>
+      <div class="two"><button data-act="ldel">Delete layer</button><button data-act="close">Done</button></div>
+      <p class="hint">Layers are shared by every frame. Drawing, fill and erase only affect the selected layer.</p>`;
+  }
+
+  /* frames */
+  function framesHTML() {
+    const last = proj.frames.length - 1;
+    const th = proj.frames.map((_, f) => `
+      <button class="fth ${f === fi ? 'sel' : ''}" data-act="fsel" data-i="${f}">
+        <img class="chk" src="${thumbURL(proj, f, 112)}" alt="Frame ${f + 1}"><small>${f + 1}</small>
+      </button>`).join('');
+    return `
+      <h2>Frames</h2>
+      <div class="strip">${th}</div>
+      <div class="two" style="margin-top:0"><button data-act="fadd">New frame</button><button data-act="fdup">Duplicate</button></div>
+      <div class="two"><button data-act="fleft" ${fi === 0 ? 'disabled' : ''}>Move left</button><button data-act="fright" ${fi === last ? 'disabled' : ''}>Move right</button></div>
+      <div class="two"><button data-act="fdel">Delete frame</button><button data-act="play" class="${playing ? 'on' : ''}">${playing ? 'Stop' : 'Play'}</button></div>
+      <div class="two"><button data-act="onion" class="${onion ? 'on' : ''}">Onion skin ${onion ? 'on' : 'off'}</button><button data-act="close">Done</button></div>
+      <h3>Speed <span id="fval">${proj.fps} fps</span></h3>
+      <input class="range" id="fps" type="range" min="1" max="24" value="${proj.fps}" aria-label="Frames per second">`;
+  }
+
+  /* palettes */
+  function palettesHTML() {
+    const rows = palettes.map(p => `
+      <button class="prow ${p.id === activePal ? 'on' : ''}" data-act="palsel" data-id="${esc(p.id)}">
+        <span><b>${esc(p.name)}</b><span class="mini">${p.colors.slice(0, 20).map(c => `<i style="background:${c}"></i>`).join('')}</span></span>
+      </button>`).join('');
+    const P = pal();
+    const sw = P.colors.map((c, i) => `<button class="swatch" style="background:${c}" data-act="${rmMode ? 'palrmc' : 'palpick'}" data-i="${i}" aria-label="${rmMode ? 'Remove' : 'Use'} ${c}" aria-pressed="${c === color && !rmMode}"></button>`).join('');
+    return `
+      <h2>Palettes</h2>
+      <div class="plist">${rows}</div>
+      <h3>Colors${rmMode ? ' (tap a color to remove it)' : ''}</h3>
+      <div class="swgrid ${rmMode ? 'rm' : ''}">${sw}</div>
+      ${P.colors.length ? '' : '<p class="hint">This palette is empty. Pick a color, then tap Add current color.</p>'}
+      <h3>Name</h3>
+      <input class="txt" id="palname" maxlength="24" value="${esc(P.name)}" aria-label="Palette name">
+      <div class="two"><button data-act="paladd">Add current color</button><button data-act="palrm" class="${rmMode ? 'on' : ''}">${rmMode ? 'Done removing' : 'Remove colors'}</button></div>
+      <div class="two"><button data-act="palnew">New palette</button><button data-act="paldup">Duplicate</button></div>
+      <div class="two"><button data-act="palimp">From drawing</button><button data-act="paldel">Delete palette</button></div>
+      <div class="stack"><button data-act="close">Done</button></div>`;
+  }
+  function paletteFromDrawing() {
+    const seen = new Set(), colors = [];
+    for (let f = 0; f < proj.frames.length && colors.length < 64; f++) {
+      for (const v of compositeOf(proj, f)) {
+        if (v && !seen.has(v)) { seen.add(v); colors.push(n2h(v)); if (colors.length >= 64) break; }
+      }
+    }
+    return colors;
+  }
+
+  /* backup */
+  async function backup() {
+    flush();
+    let list = (await dbAll('projects')).filter(validProject);
+    list = list.filter(p => p.id !== proj.id); list.push(proj);
+    const data = {
+      v: 1, palettes,
+      projects: list.map(p => ({ id: p.id, name: p.name, n: p.n, fps: p.fps, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
+    };
+    const file = new File([JSON.stringify(data)], 'pixel-backup.json', { type: 'application/json' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
+      else toast('Backup sharing isn’t available in this browser');
+    } catch (_) { /* cancelled */ }
+  }
+  $('#rfile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (!d || !Array.isArray(d.projects)) throw new Error('bad');
+      let count = 0, reopen = null;
+      for (const p of d.projects) {
+        if (!SIZES.includes(p.n) || !Array.isArray(p.layers) || !Array.isArray(p.frames)) continue;
+        const rec = {
+          id: String(p.id || uid()), name: String(p.name || 'Restored').slice(0, 40), n: p.n,
+          fps: clamp(+p.fps || 8, 1, 24), updated: +p.updated || Date.now(),
+          layers: p.layers.map(l => ({ name: String(l.name || 'Layer').slice(0, 24), vis: l.vis !== false })),
+          frames: p.frames.map(fr => ({ cels: fr.cels.map(c => Uint32Array.from(c, v => v ? (0x1000000 | (v & 0xffffff)) : 0)) }))
+        };
+        if (!validProject(rec)) continue;
+        await dbPut('projects', rec); count++;
+        if (rec.id === proj.id) reopen = rec;
+      }
+      if (Array.isArray(d.palettes)) {
+        d.palettes.forEach(p => {
+          if (!p || !Array.isArray(p.colors)) return;
+          const rec = { id: String(p.id || uid()), name: String(p.name || 'Palette').slice(0, 24), colors: p.colors.filter(isHex).slice(0, 64) };
+          const i = palettes.findIndex(x => x.id === rec.id);
+          if (i >= 0) palettes[i] = rec; else palettes.push(rec);
+        });
+        drawPalette();
+      }
+      if (reopen) { dirtyP = false; openProject(reopen); }
+      save(false);
+      toast(count ? `Restored ${count} project${count === 1 ? '' : 's'}` : 'No projects found in that file');
+      go('projects');
+    } catch (_) { toast('That file isn’t a Pixel backup'); }
+  });
+
+  /* sheet clicks */
+  sheet.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const i = +b.dataset.i, id = b.dataset.id, v = b.dataset.v;
+    switch (b.dataset.act) {
+      case 'close': closeSheet(); break;
+      case 'menu': go('menu'); break;
+      case 'projects': go('projects'); break;
+      case 'grid': showGrid = !showGrid; render(); save(false); go('menu'); break;
+      case 'mirror': mirror = !mirror; render(); save(false); go('menu'); break;
+      case 'clearlayer': {
+        const c = cel();
+        if (c.some(x => x)) { pushUndo({ t: 'cel', f: fi, l: li, d: c.slice() }); c.fill(0); render(); toast('Layer cleared. Undo restores it.'); }
+        closeSheet(); break;
+      }
+      case 'export': go('export'); break;
+      case 'esize': exportSize = +v; go('export'); break;
+      case 'emode': exportMode = v; go('export'); break;
+      case 'share': doShare(); break;
+      case 'backup': backup(); break;
+      case 'restore': $('#rfile').click(); break;
+      case 'addcolor': {
+        const P = pal();
+        if (!P.colors.includes(color)) { P.colors.push(color); save(false); toast('Added to ' + P.name); }
+        else toast('Already in ' + P.name);
+        break;
+      }
+      case 'newproj': go('newproj'); break;
+      case 'nsize': newSize = +v; go('newproj'); break;
+      case 'create': createProject(); break;
+      case 'openproj': openById(id); break;
+      case 'dupproj': dupProject(); break;
+      case 'delproj': delProject(b); break;
+      case 'lsel': li = i; updateUI(); go('layers'); break;
+      case 'lvis': proj.layers[i].vis = !proj.layers[i].vis; render(); save(); go('layers'); break;
+      case 'lup': layerMove(i, 1); break;
+      case 'ldown': layerMove(i, -1); break;
+      case 'ladd': layerAdd(false); break;
+      case 'ldup': layerAdd(true); break;
+      case 'ldel': layerDel(); break;
+      case 'fsel': if (playing) stopPlay(); fi = i; render(); updateUI(); go('frames'); break;
+      case 'fadd': frameAdd(false); break;
+      case 'fdup': frameAdd(true); break;
+      case 'fdel': frameDel(); break;
+      case 'fleft': frameMove(-1); break;
+      case 'fright': frameMove(1); break;
+      case 'play': if (playing) stopPlay(); else startPlay(); go('frames'); break;
+      case 'onion': onion = !onion; render(); save(false); go('frames'); break;
+      case 'palsel': activePal = id; rmMode = false; drawPalette(); save(false); go('palettes'); break;
+      case 'palpick': setColor(pal().colors[i]); go('palettes'); break;
+      case 'palrmc': pal().colors.splice(i, 1); drawPalette(); save(false); go('palettes'); break;
+      case 'palrm': rmMode = !rmMode; go('palettes'); break;
+      case 'paladd': {
+        const P = pal();
+        if (!P.colors.includes(color)) { P.colors.push(color); drawPalette(); save(false); go('palettes'); }
+        else toast('That color is already here');
+        break;
+      }
+      case 'palnew': {
+        const p = { id: uid(), name: 'Palette ' + (palettes.length + 1), colors: [] };
+        palettes.push(p); activePal = p.id; rmMode = false; drawPalette(); save(false); go('palettes'); break;
+      }
+      case 'paldup': {
+        const P = pal(), p = { id: uid(), name: (P.name + ' copy').slice(0, 24), colors: P.colors.slice() };
+        palettes.push(p); activePal = p.id; drawPalette(); save(false); go('palettes'); break;
+      }
+      case 'palimp': {
+        const colors = paletteFromDrawing();
+        if (!colors.length) { toast('Nothing drawn yet'); break; }
+        const p = { id: uid(), name: ('From ' + proj.name).slice(0, 24), colors };
+        palettes.push(p); activePal = p.id; rmMode = false; drawPalette(); save(false); go('palettes'); break;
+      }
+      case 'paldel':
+        if (palettes.length < 2) { toast('Keep at least one palette'); break; }
+        palettes = palettes.filter(p => p.id !== activePal); activePal = palettes[0].id; rmMode = false;
+        drawPalette(); save(false); go('palettes'); break;
+    }
+  });
+  sheet.addEventListener('input', e => {
+    const t = e.target;
+    if (t.id === 'galpha') {
+      gridAlpha = t.value / 100; $('#gval').textContent = t.value + '%';
+      if (!showGrid) {
+        showGrid = true;
+        const gb = sheet.querySelector('[data-act="grid"]');
+        if (gb) { gb.classList.add('on'); gb.textContent = 'Grid on'; }
+      }
+      render(); save(false);
+    } else if (t.id === 'fps') {
+      proj.fps = +t.value; $('#fval').textContent = t.value + ' fps';
+      if (playing) { clearInterval(playing); playing = setInterval(tick, 1000 / proj.fps); }
+      save();
+    } else if (t.id === 'lname') {
+      proj.layers[li].name = t.value.slice(0, 24) || 'Layer'; updateUI(); save();
+    } else if (t.id === 'pname') {
+      proj.name = t.value.slice(0, 40) || 'Untitled'; updateUI(); save();
+    } else if (t.id === 'palname') {
+      pal().name = t.value.slice(0, 24) || 'Palette'; drawPalette(); save(false);
+    }
+  });
+
+  /* ---------- toast ---------- */
+  let tt;
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  /* ---------- wire up ---------- */
+  $('#undo').addEventListener('click', undo);
+  $('#redo').addEventListener('click', redo);
+  $('#more').addEventListener('click', () => go('menu'));
+  $('#proj').addEventListener('click', () => go('projects'));
+  $('#bLayers').addEventListener('click', () => go('layers'));
+  $('#bFrames').addEventListener('click', () => go('frames'));
+  $('#fPrev').addEventListener('click', () => { if (fi > 0) { fi--; render(); updateUI(); } });
+  $('#fNext').addEventListener('click', () => { if (fi < proj.frames.length - 1) { fi++; render(); updateUI(); } });
+  $('#zin').addEventListener('click', () => zoomStep(1.25));
+  $('#zout').addEventListener('click', () => zoomStep(0.8));
+  $('#zfit').addEventListener('click', fit);
+  window.addEventListener('resize', () => { if (!ptrs.size && proj) fit(); });
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
