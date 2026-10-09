@@ -111,6 +111,9 @@
   }
   #overlay.clear { background: transparent; }
   #overlay[hidden] { display: none; }
+  #stopPlay { display: none; }
+  #overlay.playing #sheet { display: none; }
+  #overlay.playing #stopPlay { display: block; width: calc(100% - 24px); max-width: 400px; margin-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   #sheet {
     width: 100%; max-width: 520px; max-height: 88%; overflow: auto;
     background: var(--panel); border: 2px solid var(--ink); border-bottom: 0;
@@ -222,7 +225,7 @@
   </footer>
 </div>
 
-<div id="overlay" hidden><div id="sheet"></div></div>
+<div id="overlay" hidden><div id="sheet"></div><button id="stopPlay">Stop</button></div>
 <div id="toast" role="status"></div>
 <input type="file" id="rfile" accept=".json,application/json" hidden>
 
@@ -786,11 +789,13 @@
   }
   function startPlay() {
     if (proj.frames.length < 2) { toast('Add a second frame to play'); return; }
-    playStart = fi; playDir = 1; playing = setInterval(tick, 1000 / proj.fps); render();
+    playStart = fi; playDir = 1; playing = setInterval(tick, 1000 / proj.fps);
+    overlay.classList.add('playing'); render();
   }
   function stopPlay() {
     if (!playing) return;
     clearInterval(playing); playing = null; fi = playStart;
+    overlay.classList.remove('playing');
     if (proj) { render(); updateUI(); }
   }
 
@@ -821,7 +826,50 @@
     overlay.hidden = true; overlay.classList.remove('clear'); sheet.innerHTML = '';
     drawPalette(); updateUI(); flush();
   }
-  overlay.addEventListener('pointerdown', e => { if (e.target === overlay) closeSheet(); });
+  overlay.addEventListener('pointerdown', e => {
+    if (e.target !== overlay) return;
+    if (playing) { stopPlay(); go('frames'); } else closeSheet();
+  });
+  $('#stopPlay').addEventListener('click', () => { stopPlay(); go('frames'); });
+
+  /* swipe down on a sheet to close it */
+  (() => {
+    let y0 = 0, x0 = 0, dy = 0, mode = 0, t0 = 0; // mode: 0 undecided, 1 dragging, -1 ignore
+    sheet.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) { mode = -1; return; }
+      y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; t0 = Date.now();
+      mode = e.target.closest('input[type=range], .sv, .hue') ? -1 : 0;
+      sheet.style.transition = 'none';
+    }, { passive: true });
+    sheet.addEventListener('touchmove', e => {
+      if (mode === -1) return;
+      const t = e.touches[0];
+      dy = t.clientY - y0;
+      if (mode === 0) {
+        const dx = t.clientX - x0;
+        if (Math.abs(dy) < 8 && Math.abs(dx) < 8) return;
+        mode = (dy > 0 && Math.abs(dy) > Math.abs(dx) && sheet.scrollTop <= 0) ? 1 : -1;
+        if (mode === -1) return;
+      }
+      e.preventDefault();
+      sheet.style.transform = `translateY(${Math.max(0, dy)}px)`;
+    }, { passive: false });
+    const end = () => {
+      if (mode !== 1) { mode = 0; return; }
+      mode = 0;
+      const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
+      sheet.style.transition = 'transform .15s ease-out';
+      if (dy > 90 || fast) {
+        sheet.style.transform = 'translateY(100%)';
+        setTimeout(() => { closeSheet(); sheet.style.transition = ''; sheet.style.transform = ''; }, 150);
+      } else {
+        sheet.style.transform = '';
+        setTimeout(() => { sheet.style.transition = ''; }, 150);
+      }
+    };
+    sheet.addEventListener('touchend', end);
+    sheet.addEventListener('touchcancel', end);
+  })();
 
   function menuHTML() {
     return `
