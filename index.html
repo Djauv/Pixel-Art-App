@@ -276,6 +276,7 @@
   let gifBlob = null, gifURL = '';
   let playing = null, playStart = 0, playDir = 1;
   let curSheet = null, confirmDel = false;
+  const VERSION = 10; // keep in step with CACHE in sw.js
   let sel = null, fl = null, clip = null; // selection rect, floating pixels, clipboard
 
   const cel = () => proj.frames[fi].cels[li];
@@ -1033,7 +1034,8 @@
           <button data-act="restore">Restore</button>
         </div>
         <button data-act="close">Done</button>
-      </div>`;
+      </div>
+      <p class="hint" style="text-align:center">Version ${VERSION}</p>`;
   }
 
   /* export */
