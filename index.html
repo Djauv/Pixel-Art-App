@@ -100,8 +100,13 @@
   .custom:active:not(:disabled) { transform: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
   .chip { flex: none; height: 36px; min-height: 0; padding: 0 12px; font-size: 14px; border-radius: 18px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  #tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 2px 12px 4px; }
-  #tools button { padding: 0; }
+  #tools { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; padding: 2px 12px 4px; }
+  #tools button { padding: 0; font-size: 15px; }
+  #selbar { display: none; gap: 8px; overflow-x: auto; padding: 4px 12px 8px; align-items: center; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  #selbar::-webkit-scrollbar { display: none; }
+  #selbar button { flex: none; height: 36px; min-height: 0; padding: 0 12px; font-size: 14px; }
+  body.selmode #palette { display: none; }
+  body.selmode #selbar { display: flex; }
   #nav { display: grid; grid-template-columns: 1.25fr 44px 1.25fr 44px; gap: 8px; padding: 8px 12px 4px; }
   #nav button { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -210,11 +215,22 @@
   </div>
 
   <footer>
+    <div id="selbar">
+      <button data-sel="all">All</button>
+      <button data-sel="copy">Copy</button>
+      <button data-sel="cut">Cut</button>
+      <button data-sel="paste">Paste</button>
+      <button data-sel="clear">Clear</button>
+      <button data-sel="flipH">Flip H</button>
+      <button data-sel="flipV">Flip V</button>
+      <button data-sel="done">Done</button>
+    </div>
     <div id="palette"></div>
     <div id="tools">
       <button data-tool="draw" class="on">Draw</button>
       <button data-tool="erase">Erase</button>
       <button data-tool="fill">Fill</button>
+      <button data-tool="select">Select</button>
       <button data-tool="pick">Pick</button>
       <button data-tool="pan">Pan</button>
     </div>
@@ -260,6 +276,7 @@
   let gifBlob = null, gifURL = '';
   let playing = null, playStart = 0, playDir = 1;
   let curSheet = null, confirmDel = false;
+  let sel = null, fl = null, clip = null; // selection rect, floating pixels, clipboard
 
   const cel = () => proj.frames[fi].cels[li];
   const pal = () => palettes.find(p => p.id === activePal) || palettes[0];
@@ -322,6 +339,7 @@
     render();
   }
   function render() {
+    if (sel && (sel.p !== proj || sel.f !== fi || sel.l !== li)) { sel = fl = null; syncSelUI(); }
     fillImage(img, compositeOf(proj, fi)); octx.putImageData(img, 0, 0);
     const W = cv.width, H = cv.height;
     ctx.clearRect(0, 0, W, H);
@@ -348,6 +366,12 @@
       ctx.strokeStyle = '#ff3d8b'; ctx.lineWidth = Math.max(1, dpr);
       ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.beginPath();
       ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (sel && tool === 'select' && !playing) {
+      const k = W / N, lw = Math.max(2, dpr * 1.5);
+      ctx.lineWidth = lw; ctx.strokeStyle = '#fff'; ctx.strokeRect(sel.x * k, sel.y * k, sel.w * k, sel.h * k);
+      ctx.strokeStyle = '#000'; ctx.setLineDash([5 * dpr, 5 * dpr]);
+      ctx.strokeRect(sel.x * k, sel.y * k, sel.w * k, sel.h * k); ctx.setLineDash([]);
     }
   }
   function fit() {
@@ -448,12 +472,14 @@
   }
   function undo() {
     if (!undoStack.length || playing) return;
+    dropSel();
     const inv = applyEntry(undoStack.pop());
     if (inv) redoStack.push(inv);
     afterChange();
   }
   function redo() {
     if (!redoStack.length || playing) return;
+    dropSel();
     const inv = applyEntry(redoStack.pop());
     if (inv) undoStack.push(inv);
     afterChange();
@@ -485,6 +511,7 @@
   }
   function startStroke(e) {
     const c = cellAt(e);
+    if (tool === 'select') { startSelect(c); return; }
     if (tool === 'pick') {
       if (c.x >= 0 && c.y >= 0 && c.x < N && c.y < N) {
         const v = compositeOf(proj, fi)[c.y * N + c.x];
@@ -506,6 +533,7 @@
   }
   function moveStroke(e) {
     const c = cellAt(e);
+    if (stroke.kind) { moveSelect(c); return; }
     if (c.x === stroke.last.x && c.y === stroke.last.y) return;
     if (line(stroke.last, c, stroke.v)) stroke.changed = true;
     stroke.last = c; render();
@@ -513,13 +541,108 @@
   function endStroke() {
     if (!stroke) return;
     if (stroke.changed) pushUndo(stroke.snap);
-    stroke = null;
+    stroke = null; syncSelUI();
   }
   function cancelStroke() {
     if (!stroke) return;
+    if (stroke.kind === 'selmove' && sel) { sel.x = stroke.start.x; sel.y = stroke.start.y; if (stroke.lifted) fl = null; }
     proj.frames[stroke.snap.f].cels[stroke.snap.l].set(stroke.snap.d);
-    stroke = null; render();
+    stroke = null; render(); syncSelUI();
   }
+
+  /* ---------- selection ---------- */
+  const inSel = c => sel && c.x >= sel.x && c.y >= sel.y && c.x < sel.x + sel.w && c.y < sel.y + sel.h;
+  const clampC = c => ({ x: clamp(c.x, 0, N - 1), y: clamp(c.y, 0, N - 1) });
+  const newSel = (x, y, w, h) => ({ x, y, w, h, p: proj, f: fi, l: li });
+  function dropSel() { sel = null; fl = null; syncSelUI(); }
+  function stamp() { // cel = pixels under the selection + the floating pixels on top
+    const c = cel(); c.set(fl.base);
+    for (let y = 0; y < sel.h; y++) {
+      const ty = sel.y + y; if (ty < 0 || ty >= N) continue;
+      for (let x = 0; x < sel.w; x++) {
+        const tx = sel.x + x; if (tx < 0 || tx >= N) continue;
+        const v = fl.data[y * sel.w + x]; if (v) c[ty * N + tx] = v;
+      }
+    }
+  }
+  function layerOK() { if (!proj.layers[li].vis) { toast('This layer is hidden. Show it in Layers.'); return false; } return true; }
+  function liftSel() { // pick the selected pixels up so they can move
+    if (fl) return true;
+    if (!layerOK()) return false;
+    const c = cel(), data = new Uint32Array(sel.w * sel.h), base = c.slice();
+    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) { const i = (sel.y + y) * N + sel.x + x; data[y * sel.w + x] = c[i]; base[i] = 0; }
+    fl = { data, base }; return true;
+  }
+  function startSelect(c) {
+    const snap = { t: 'cel', f: fi, l: li, d: cel().slice() };
+    if (inSel(c)) {
+      stroke = { kind: 'selmove', snap, c0: c, start: { x: sel.x, y: sel.y }, changed: false, lifted: false };
+    } else {
+      fl = null; // drop the floating pixels into the layer
+      const had = !!sel, a = clampC(c);
+      sel = had ? null : newSel(a.x, a.y, 1, 1);
+      stroke = { kind: 'selrect', snap, a, changed: false };
+    }
+    render(); syncSelUI();
+  }
+  function moveSelect(c) {
+    if (stroke.kind === 'selrect') {
+      const a = stroke.a, b = clampC(c);
+      sel = newSel(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x) + 1, Math.abs(a.y - b.y) + 1);
+    } else {
+      const dx = c.x - stroke.c0.x, dy = c.y - stroke.c0.y;
+      if (!dx && !dy && !stroke.lifted) return;
+      if (!fl) { if (!liftSel()) { stroke = null; return; } stroke.lifted = true; }
+      sel.x = stroke.start.x + dx; sel.y = stroke.start.y + dy;
+      stamp(); stroke.changed = true;
+    }
+    render();
+  }
+  function grabSel() {
+    if (fl) return { w: sel.w, h: sel.h, data: fl.data.slice() };
+    const c = cel(), data = new Uint32Array(sel.w * sel.h);
+    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) data[y * sel.w + x] = c[(sel.y + y) * N + sel.x + x];
+    return { w: sel.w, h: sel.h, data };
+  }
+  function selAction(a) {
+    if (a === 'done') { dropSel(); setTool(prevTool === 'select' ? 'draw' : prevTool); return; }
+    if (a === 'all') { fl = null; sel = newSel(0, 0, N, N); render(); syncSelUI(); return; }
+    const snap = () => ({ t: 'cel', f: fi, l: li, d: cel().slice() });
+    if (a === 'paste') {
+      if (!clip) { toast('Nothing copied yet'); return; }
+      if (!layerOK()) return;
+      const s0 = snap(); fl = null;
+      const x = clamp(Math.max(0, Math.ceil(-ox / cell)), 0, Math.max(0, N - clip.w)), y = clamp(Math.max(0, Math.ceil(-oy / cell)), 0, Math.max(0, N - clip.h));
+      fl = { data: clip.data.slice(), base: cel().slice() };
+      sel = newSel(x, y, clip.w, clip.h);
+      stamp(); pushUndo(s0); render(); syncSelUI(); toast('Pasted. Drag to move it.');
+      return;
+    }
+    if (!sel) return;
+    if (a === 'copy') { clip = grabSel(); syncSelUI(); toast('Copied'); return; }
+    if (!layerOK()) return;
+    const s0 = snap();
+    if (a === 'cut' || a === 'clear') {
+      if (a === 'cut') clip = grabSel();
+      if (fl) { cel().set(fl.base); fl = null; sel = null; }
+      else for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) cel()[(sel.y + y) * N + sel.x + x] = 0;
+    } else if (a === 'flipH' || a === 'flipV') {
+      if (!liftSel()) return;
+      const d = fl.data, o = d.slice();
+      for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++)
+        d[y * sel.w + x] = a === 'flipH' ? o[y * sel.w + (sel.w - 1 - x)] : o[(sel.h - 1 - y) * sel.w + x];
+      stamp();
+    }
+    pushUndo(s0); render(); syncSelUI();
+  }
+  function syncSelUI() {
+    const bar = $('#selbar'); if (!bar) return;
+    bar.querySelectorAll('button').forEach(b => {
+      const a = b.dataset.sel;
+      b.disabled = (a === 'paste') ? !clip : (a === 'all' || a === 'done') ? false : !sel;
+    });
+  }
+  document.querySelectorAll('#selbar button').forEach(b => b.addEventListener('click', () => selAction(b.dataset.sel)));
   const two = () => { const [a, b] = [...ptrs.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
 
   stage.addEventListener('pointerdown', e => {
@@ -562,7 +685,9 @@
 
   /* ---------- tools & palette row ---------- */
   function setTool(t) {
+    if (tool === 'select' && t !== 'select') dropSel();
     tool = t; if (t !== 'pick') prevTool = t;
+    document.body.classList.toggle('selmode', t === 'select'); syncSelUI(); if (proj) render();
     document.querySelectorAll('#tools button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
     stage.style.cursor = t === 'pan' ? 'grab' : 'crosshair';
   }
