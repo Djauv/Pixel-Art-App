@@ -128,6 +128,9 @@
   }
   #sheet h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; }
   #sheet h3 { margin: 16px 0 8px; font-size: 16px; font-weight: 400; color: var(--muted); display: flex; justify-content: space-between; }
+  .lbl { display: grid; gap: 4px; color: var(--muted); font-size: 14px; }
+  .anchors { display: grid; grid-template-columns: repeat(3, 56px); gap: 6px; justify-content: center; }
+  .anchors button { padding: 0; font-size: 22px; }
   .bgchip { display: inline-block; width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px; border: 1.5px solid currentColor; border-radius: 3px; }
   .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
   .stack { display: grid; gap: 10px; margin-top: 16px; }
@@ -252,7 +255,8 @@
 (() => {
   const PICO = ['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#fff1e8',
                 '#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa'];
-  const SIZES = [16, 32, 48, 64];
+  const SIZES = [16, 32, 48, 64], MAXDIM = 128;
+  const dimOk = v => Number.isInteger(v) && v >= 1 && v <= MAXDIM;
   const $ = s => document.querySelector(s);
   const stage = $('#stage'), cv = $('#cv'), ctx = cv.getContext('2d');
   const off = document.createElement('canvas'), octx = off.getContext('2d');
@@ -267,32 +271,32 @@
 
   /* ---------- state ---------- */
   let proj = null, fi = 0, li = 0;
-  let N = 32, img, imgO, cell = 10, ox = 0, oy = 0, bmpK = 0;
+  let NW = 32, NH = 32, img, imgO, cell = 10, ox = 0, oy = 0, bmpK = 0;
   let showGrid = true, mirror = false, gridAlpha = 0.5, onion = false;
   let tool = 'draw', prevTool = 'draw';
   let color = '#ff004d';
   let palettes = [], activePal = '', rmMode = false;
   let undoStack = [], redoStack = [];
-  let exportSize = 512, exportMode = 'frame', newSize = 32;
+  let exportSize = 512, exportMode = 'frame', newW = 32, newH = 32, rsW = 32, rsH = 32, rsAx = 0.5, rsAy = 0.5;
   let gifBlob = null, gifURL = '';
   let playing = null, playStart = 0, playDir = 1;
   let curSheet = null, confirmDel = false;
-  const VERSION = 11; // keep in step with CACHE in sw.js
+  const VERSION = 12; // keep in step with CACHE in sw.js
   let sel = null, fl = null, clip = null; // selection rect, floating pixels, clipboard
 
   const cel = () => proj.frames[fi].cels[li];
   const pal = () => palettes.find(p => p.id === activePal) || palettes[0];
 
-  function setSize(n) {
-    N = n; bmpK = 0;
-    off.width = off.height = offO.width = offO.height = n;
-    img = octx.createImageData(n, n);
-    imgO = octxO.createImageData(n, n);
+  function setSize(w, h) {
+    NW = w; NH = h; bmpK = 0;
+    off.width = offO.width = w; off.height = offO.height = h;
+    img = octx.createImageData(w, h);
+    imgO = octxO.createImageData(w, h);
   }
 
   /* ---------- compositing ---------- */
   function compositeOf(p, f) {
-    const n = p.n * p.n, out = new Uint32Array(n), fr = p.frames[f];
+    const n = p.w * p.h, out = new Uint32Array(n), fr = p.frames[f];
     for (let l = 0; l < p.layers.length; l++) {
       if (!p.layers[l].vis) continue;
       const c = fr.cels[l];
@@ -309,13 +313,13 @@
     }
   }
   function frameCanvasOf(p, f) {
-    const c = document.createElement('canvas'); c.width = c.height = p.n;
-    const x = c.getContext('2d'), im = x.createImageData(p.n, p.n);
+    const c = document.createElement('canvas'); c.width = p.w; c.height = p.h;
+    const x = c.getContext('2d'), im = x.createImageData(p.w, p.h);
     fillImage(im, compositeOf(p, f));
     if (p.bg) {
-      const t = document.createElement('canvas'); t.width = t.height = p.n;
+      const t = document.createElement('canvas'); t.width = p.w; t.height = p.h;
       t.getContext('2d').putImageData(im, 0, 0);
-      x.fillStyle = p.bg; x.fillRect(0, 0, p.n, p.n); x.drawImage(t, 0, 0);
+      x.fillStyle = p.bg; x.fillRect(0, 0, p.w, p.h); x.drawImage(t, 0, 0);
     } else x.putImageData(im, 0, 0);
     return c;
   }
@@ -324,7 +328,8 @@
       const src = frameCanvasOf(p, f), c = document.createElement('canvas');
       c.width = c.height = size;
       const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
-      x.drawImage(src, 0, 0, size, size);
+      const L = Math.max(p.w, p.h), tw = Math.max(1, Math.round(size * p.w / L)), th = Math.max(1, Math.round(size * p.h / L));
+      x.drawImage(src, (size - tw) >> 1, (size - th) >> 1, tw, th);
       return c.toDataURL();
     } catch (_) { return ''; }
   }
@@ -332,8 +337,8 @@
   /* ---------- rendering ---------- */
   function place() { cv.style.transform = `translate(${ox}px, ${oy}px)`; }
   function clampOffset() {
-    const sw = stage.clientWidth, sh = stage.clientHeight, css = N * cell, m = Math.min(60, css);
-    ox = clamp(ox, m - css, sw - m); oy = clamp(oy, m - css, sh - m);
+    const sw = stage.clientWidth, sh = stage.clientHeight, cw = NW * cell, ch = NH * cell, mx = Math.min(60, cw), my = Math.min(60, ch);
+    ox = clamp(ox, mx - cw, sw - mx); oy = clamp(oy, my - ch, sh - my);
   }
   function applyBg() {
     cv.style.background = proj && proj.bg ? proj.bg
@@ -341,12 +346,11 @@
   }
   function layout() {
     cell = clamp(cell, 2, 64);
-    const css = N * cell;
-    cv.style.width = css + 'px'; cv.style.height = css + 'px';
+    cv.style.width = NW * cell + 'px'; cv.style.height = NH * cell + 'px';
     applyBg();
     clampOffset(); place();
-    const k = Math.max(1, Math.min(Math.floor(2048 / N), Math.round(cell * dpr)));
-    if (k !== bmpK) { bmpK = k; cv.width = cv.height = N * k; }
+    const k = Math.max(1, Math.min(Math.floor(2048 / Math.max(NW, NH)), Math.round(cell * dpr)));
+    if (k !== bmpK) { bmpK = k; cv.width = NW * k; cv.height = NH * k; }
     render();
   }
   function render() {
@@ -364,10 +368,8 @@
       const k = bmpK;
       const pass = (o, style) => {
         ctx.strokeStyle = style; ctx.lineWidth = 1; ctx.beginPath();
-        for (let i = 0; i <= N; i++) {
-          const p = Math.min(i * k + o, W - .5);
-          ctx.moveTo(p, 0); ctx.lineTo(p, H); ctx.moveTo(0, p); ctx.lineTo(W, p);
-        }
+        for (let i = 0; i <= NW; i++) { const p = Math.min(i * k + o, W - .5); ctx.moveTo(p, 0); ctx.lineTo(p, H); }
+        for (let i = 0; i <= NH; i++) { const p = Math.min(i * k + o, H - .5); ctx.moveTo(0, p); ctx.lineTo(W, p); }
         ctx.stroke();
       };
       pass(.5, `rgba(0,0,0,${gridAlpha})`);
@@ -379,7 +381,7 @@
       ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
     }
     if (sel && tool === 'select' && !playing) {
-      const k = W / N, lw = Math.max(2, dpr * 1.5);
+      const k = W / NW, lw = Math.max(2, dpr * 1.5);
       ctx.lineWidth = lw; ctx.strokeStyle = '#fff'; ctx.strokeRect(sel.x * k, sel.y * k, sel.w * k, sel.h * k);
       ctx.strokeStyle = '#000'; ctx.setLineDash([5 * dpr, 5 * dpr]);
       ctx.strokeRect(sel.x * k, sel.y * k, sel.w * k, sel.h * k); ctx.setLineDash([]);
@@ -387,8 +389,8 @@
   }
   function fit() {
     const w = stage.clientWidth - 32, h = stage.clientHeight - 32;
-    cell = Math.max(2, Math.floor(Math.min(w, h) / N));
-    ox = (stage.clientWidth - N * cell) / 2; oy = (stage.clientHeight - N * cell) / 2;
+    cell = clamp(Math.floor(Math.min(w / NW, h / NH)), 2, 64);
+    ox = (stage.clientWidth - NW * cell) / 2; oy = (stage.clientHeight - NH * cell) / 2;
     layout();
   }
   function zoomAt(newCell, mx, my) {
@@ -407,12 +409,12 @@
 
   /* ---------- editing ---------- */
   function setPx(x, y, v) {
-    if (x < 0 || y < 0 || x >= N || y >= N) return false;
+    if (x < 0 || y < 0 || x >= NW || y >= NH) return false;
     const c = cel(); let changed = false;
-    const i = y * N + x;
+    const i = y * NW + x;
     if (c[i] !== v) { c[i] = v; changed = true; }
     if (mirror) {
-      const j = y * N + (N - 1 - x);
+      const j = y * NW + (NW - 1 - x);
       if (c[j] !== v) { c[j] = v; changed = true; }
     }
     return changed;
@@ -432,19 +434,19 @@
     return changed;
   }
   function floodFill(x, y, v) {
-    if (x < 0 || y < 0 || x >= N || y >= N) return false;
-    const c = cel(), target = c[y * N + x];
+    if (x < 0 || y < 0 || x >= NW || y >= NH) return false;
+    const c = cel(), target = c[y * NW + x];
     if (target === v) return false;
-    const stack = [y * N + x];
+    const stack = [y * NW + x];
     while (stack.length) {
       const i = stack.pop();
       if (c[i] !== target) continue;
       c[i] = v;
-      const cx = i % N, cy = (i / N) | 0;
+      const cx = i % NW, cy = (i / NW) | 0;
       if (cx > 0) stack.push(i - 1);
-      if (cx < N - 1) stack.push(i + 1);
-      if (cy > 0) stack.push(i - N);
-      if (cy < N - 1) stack.push(i + N);
+      if (cx < NW - 1) stack.push(i + 1);
+      if (cy > 0) stack.push(i - NW);
+      if (cy < NH - 1) stack.push(i + NW);
     }
     return true;
   }
@@ -452,6 +454,7 @@
   /* ---------- history ---------- */
   function cloneState() {
     return {
+      w: NW, h: NH,
       layers: proj.layers.map(l => ({ ...l })),
       frames: proj.frames.map(f => ({ cels: f.cels.map(c => c.slice()) })),
       fi, li
@@ -461,6 +464,7 @@
     proj.layers = s.layers.map(l => ({ ...l }));
     proj.frames = s.frames.map(f => ({ cels: f.cels.map(c => c.slice()) }));
     fi = s.fi; li = s.li;
+    if (s.w !== NW || s.h !== NH) { proj.w = s.w; proj.h = s.h; setSize(s.w, s.h); fit(); }
   }
   function pushUndo(e) {
     undoStack.push(e);
@@ -518,14 +522,14 @@
 
   function cellAt(e) {
     const r = cv.getBoundingClientRect();
-    return { x: Math.floor((e.clientX - r.left) / r.width * N), y: Math.floor((e.clientY - r.top) / r.height * N) };
+    return { x: Math.floor((e.clientX - r.left) / r.width * NW), y: Math.floor((e.clientY - r.top) / r.height * NH) };
   }
   function startStroke(e) {
     const c = cellAt(e);
     if (tool === 'select') { startSelect(c); return; }
     if (tool === 'pick') {
-      if (c.x >= 0 && c.y >= 0 && c.x < N && c.y < N) {
-        const v = compositeOf(proj, fi)[c.y * N + c.x];
+      if (c.x >= 0 && c.y >= 0 && c.x < NW && c.y < NH) {
+        const v = compositeOf(proj, fi)[c.y * NW + c.x];
         if (v) setColor(n2h(v)); else toast('That pixel is empty');
         setTool(prevTool === 'pick' ? 'draw' : prevTool);
       }
@@ -563,16 +567,16 @@
 
   /* ---------- selection ---------- */
   const inSel = c => sel && c.x >= sel.x && c.y >= sel.y && c.x < sel.x + sel.w && c.y < sel.y + sel.h;
-  const clampC = c => ({ x: clamp(c.x, 0, N - 1), y: clamp(c.y, 0, N - 1) });
+  const clampC = c => ({ x: clamp(c.x, 0, NW - 1), y: clamp(c.y, 0, NH - 1) });
   const newSel = (x, y, w, h) => ({ x, y, w, h, p: proj, f: fi, l: li });
   function dropSel() { sel = null; fl = null; syncSelUI(); }
   function stamp() { // cel = pixels under the selection + the floating pixels on top
     const c = cel(); c.set(fl.base);
     for (let y = 0; y < sel.h; y++) {
-      const ty = sel.y + y; if (ty < 0 || ty >= N) continue;
+      const ty = sel.y + y; if (ty < 0 || ty >= NH) continue;
       for (let x = 0; x < sel.w; x++) {
-        const tx = sel.x + x; if (tx < 0 || tx >= N) continue;
-        const v = fl.data[y * sel.w + x]; if (v) c[ty * N + tx] = v;
+        const tx = sel.x + x; if (tx < 0 || tx >= NW) continue;
+        const v = fl.data[y * sel.w + x]; if (v) c[ty * NW + tx] = v;
       }
     }
   }
@@ -581,7 +585,7 @@
     if (fl) return true;
     if (!layerOK()) return false;
     const c = cel(), data = new Uint32Array(sel.w * sel.h), base = c.slice();
-    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) { const i = (sel.y + y) * N + sel.x + x; data[y * sel.w + x] = c[i]; base[i] = 0; }
+    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) { const i = (sel.y + y) * NW + sel.x + x; data[y * sel.w + x] = c[i]; base[i] = 0; }
     fl = { data, base }; return true;
   }
   function startSelect(c) {
@@ -612,18 +616,18 @@
   function grabSel() {
     if (fl) return { w: sel.w, h: sel.h, data: fl.data.slice() };
     const c = cel(), data = new Uint32Array(sel.w * sel.h);
-    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) data[y * sel.w + x] = c[(sel.y + y) * N + sel.x + x];
+    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) data[y * sel.w + x] = c[(sel.y + y) * NW + sel.x + x];
     return { w: sel.w, h: sel.h, data };
   }
   function selAction(a) {
     if (a === 'done') { dropSel(); setTool(prevTool === 'select' ? 'draw' : prevTool); return; }
-    if (a === 'all') { fl = null; sel = newSel(0, 0, N, N); render(); syncSelUI(); return; }
+    if (a === 'all') { fl = null; sel = newSel(0, 0, NW, NH); render(); syncSelUI(); return; }
     const snap = () => ({ t: 'cel', f: fi, l: li, d: cel().slice() });
     if (a === 'paste') {
       if (!clip) { toast('Nothing copied yet'); return; }
       if (!layerOK()) return;
       const s0 = snap(); fl = null;
-      const x = clamp(Math.max(0, Math.ceil(-ox / cell)), 0, Math.max(0, N - clip.w)), y = clamp(Math.max(0, Math.ceil(-oy / cell)), 0, Math.max(0, N - clip.h));
+      const x = clamp(Math.max(0, Math.ceil(-ox / cell)), 0, Math.max(0, NW - clip.w)), y = clamp(Math.max(0, Math.ceil(-oy / cell)), 0, Math.max(0, NH - clip.h));
       fl = { data: clip.data.slice(), base: cel().slice() };
       sel = newSel(x, y, clip.w, clip.h);
       stamp(); pushUndo(s0); render(); syncSelUI(); toast('Pasted. Drag to move it.');
@@ -636,7 +640,7 @@
     if (a === 'cut' || a === 'clear') {
       if (a === 'cut') clip = grabSel();
       if (fl) { cel().set(fl.base); fl = null; sel = null; }
-      else for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) cel()[(sel.y + y) * N + sel.x + x] = 0;
+      else for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) cel()[(sel.y + y) * NW + sel.x + x] = 0;
     } else if (a === 'flipH' || a === 'flipV') {
       if (!liftSel()) return;
       const d = fl.data, o = d.slice();
@@ -781,12 +785,12 @@
   window.addEventListener('pagehide', flush);
 
   /* ---------- projects ---------- */
-  function makeProject(n, name) {
-    return { id: uid(), name, n, layers: [{ name: 'Layer 1', vis: true }], frames: [{ cels: [new Uint32Array(n * n)] }], fps: 8, bg: null, updated: Date.now() };
+  function makeProject(w, h, name) {
+    return { id: uid(), name, w, h, layers: [{ name: 'Layer 1', vis: true }], frames: [{ cels: [new Uint32Array(w * h)] }], fps: 8, bg: null, updated: Date.now() };
   }
   function openProject(p) {
     stopPlay();
-    proj = p; setSize(p.n); fi = 0; li = 0;
+    proj = p; setSize(p.w, p.h); fi = 0; li = 0;
     undoStack = []; redoStack = [];
     fit(); updateUI(); save(false);
   }
@@ -798,7 +802,7 @@
       const raw = localStorage.getItem('pixel-v1'); if (!raw) return null;
       const d = JSON.parse(raw);
       if (!SIZES.includes(d.n) || !Array.isArray(d.px) || d.px.length !== d.n * d.n) return null;
-      const p = makeProject(d.n, 'My first drawing');
+      const p = makeProject(d.n, d.n, 'My first drawing');
       p.frames[0].cels[0] = Uint32Array.from(d.px, v => v ? (0x1000000 | (v & 0xffffff)) : 0);
       if (Array.isArray(d.custom)) palettes.find(x => x.id === 'mine').colors = d.custom.filter(isHex).slice(0, 24);
       if (isHex(d.color)) color = d.color;
@@ -809,8 +813,9 @@
   }
   function validProject(p) {
     try {
-      if (!p || !SIZES.includes(p.n) || !Array.isArray(p.layers) || !p.layers.length || !Array.isArray(p.frames) || !p.frames.length) return false;
-      return p.frames.every(f => f.cels.length === p.layers.length && f.cels.every(c => c.length === p.n * p.n));
+      if (p && p.w == null && SIZES.includes(p.n)) { p.w = p.h = p.n; } // projects saved before rectangular canvases
+      if (!p || !dimOk(p.w) || !dimOk(p.h) || !Array.isArray(p.layers) || !p.layers.length || !Array.isArray(p.frames) || !p.frames.length) return false;
+      return p.frames.every(f => f.cels.length === p.layers.length && f.cels.every(c => c.length === p.w * p.h));
     } catch (_) { return false; }
   }
   async function boot() {
@@ -830,19 +835,21 @@
     if (s && s.current) p = list.find(x => x.id === s.current);
     if (!p && list.length) p = list.sort((a, b) => b.updated - a.updated)[0];
     if (!p && !s) p = migrateOld();
-    if (!p) p = makeProject(32, 'Project 1');
+    if (!p) p = makeProject(32, 32, 'Project 1');
     setTool('draw'); drawPalette();
     openProject(p);
     dirtyP = true; save();
     if (!ok) toast('Saving isn’t available in this browser');
   }
 
+  const clampDim = v => clamp(Math.round(+v) || 32, 1, MAXDIM);
   async function createProject() {
     flush();
     const list = await dbAll('projects');
-    const p = makeProject(newSize, 'Project ' + (list.length + 1));
+    const w = clampDim(newW), h = clampDim(newH);
+    const p = makeProject(w, h, 'Project ' + (list.length + 1));
     openProject(p); dirtyP = true; save();
-    closeSheet(); toast(`New ${newSize}×${newSize} project`);
+    closeSheet(); toast(`New ${w}×${h} project`);
   }
   async function openById(id) {
     if (id === proj.id) { closeSheet(); return; }
@@ -871,7 +878,7 @@
     const id = proj.id;
     await dbDel('projects', id);
     const list = (await dbAll('projects')).filter(validProject).sort((a, b) => b.updated - a.updated);
-    const next = list[0] || makeProject(32, 'Project 1');
+    const next = list[0] || makeProject(32, 32, 'Project 1');
     dirtyP = false;
     openProject(next); dirtyP = true; save();
     closeSheet(); toast('Project deleted');
@@ -882,7 +889,7 @@
     pushStruct();
     const idx = li + 1;
     proj.layers.splice(idx, 0, { name: dup ? (proj.layers[li].name + ' copy').slice(0, 24) : 'Layer ' + (proj.layers.length + 1), vis: true });
-    proj.frames.forEach(fr => fr.cels.splice(idx, 0, dup ? fr.cels[li].slice() : new Uint32Array(N * N)));
+    proj.frames.forEach(fr => fr.cels.splice(idx, 0, dup ? fr.cels[li].slice() : new Uint32Array(NW * NH)));
     li = idx; afterChange();
   }
   function layerDel() {
@@ -902,7 +909,7 @@
   function frameAdd(dup) {
     pushStruct();
     const src = proj.frames[fi];
-    proj.frames.splice(fi + 1, 0, { cels: proj.layers.map((_, l) => dup ? src.cels[l].slice() : new Uint32Array(N * N)) });
+    proj.frames.splice(fi + 1, 0, { cels: proj.layers.map((_, l) => dup ? src.cels[l].slice() : new Uint32Array(NW * NH)) });
     fi++; afterChange();
   }
   function frameDel() {
@@ -945,6 +952,7 @@
     color: { clear: true, html: colorHTML, init: initColorPicker },
     projects: { html: projectsHTML },
     newproj: { html: newProjHTML },
+    resize: { html: resizeHTML },
     layers: { clear: true, html: layersHTML },
     frames: { clear: true, html: framesHTML, init: () => { const s = sheet.querySelector('.fth.sel'), st = sheet.querySelector('.strip'); if (s && st) st.scrollLeft += s.getBoundingClientRect().left - st.getBoundingClientRect().left - (st.clientWidth - s.offsetWidth) / 2; } },
     palettes: { html: palettesHTML }
@@ -1057,14 +1065,14 @@
   }
 
   /* export */
-  const scaleFor = size => Math.max(1, Math.round(size / N));
+  const scaleFor = size => Math.max(1, Math.round(size / Math.max(NW, NH)));
   function exportCanvas(scale) {
     const c = document.createElement('canvas'), nF = exportMode === 'sheet' ? proj.frames.length : 1;
-    c.width = N * scale * nF; c.height = N * scale;
+    c.width = NW * scale * nF; c.height = NH * scale;
     const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
     for (let k = 0; k < nF; k++) {
       const f = exportMode === 'sheet' ? k : fi;
-      x.drawImage(frameCanvasOf(proj, f), k * N * scale, 0, N * scale, N * scale);
+      x.drawImage(frameCanvasOf(proj, f), k * NW * scale, 0, NW * scale, NH * scale);
     }
     return c;
   }
@@ -1090,7 +1098,7 @@
     return out;
   }
   function encodeGIF(scale) {
-    const W = N * scale, H = W;
+    const W = NW * scale, H = NH * scale;
     const bgv = proj.bg ? h2n(proj.bg) : 0;
     const comps = proj.frames.map((_, f) => { const a = compositeOf(proj, f); if (bgv) for (let i = 0; i < a.length; i++) if (!a[i]) a[i] = bgv; return a; });
     const uniq = new Set();
@@ -1113,8 +1121,8 @@
     };
     const frames = comps.map(a => {
       const o = new Uint8Array(W * H), row = new Uint8Array(W);
-      for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) { const v = a[y * N + x]; row.fill(v ? colorIdx(v) : 0, x * scale, x * scale + scale); }
+      for (let y = 0; y < NH; y++) {
+        for (let x = 0; x < NW; x++) { const v = a[y * NW + x]; row.fill(v ? colorIdx(v) : 0, x * scale, x * scale + scale); }
         for (let s = 0; s < scale; s++) o.set(row, (y * scale + s) * W);
       }
       return o;
@@ -1151,10 +1159,11 @@
   function exportHTML() {
     const multi = proj.frames.length > 1;
     if (!multi) exportMode = 'frame';
-    let sizes = [...new Set([256, 512, 1024, 2048].map(s => N * scaleFor(s)))];
+    const L = Math.max(NW, NH);
+    let sizes = [...new Set([256, 512, 1024, 2048].map(s => L * scaleFor(s)))];
     if (exportMode === 'gif') sizes = sizes.filter(s => s <= 1024);
-    if (!sizes.length) sizes = [N * scaleFor(256)];
-    if (!sizes.includes(N * scaleFor(exportSize))) exportSize = sizes[1] || sizes[0];
+    if (!sizes.length) sizes = [L * scaleFor(256)];
+    if (!sizes.includes(L * scaleFor(exportSize))) exportSize = sizes[1] || sizes[0];
     const scale = scaleFor(exportSize);
     let url, note = '';
     if (exportMode === 'gif') {
@@ -1171,7 +1180,7 @@
         <button data-act="emode" data-v="frame" class="${exportMode === 'frame' ? 'on' : ''}">This frame</button>
         <button data-act="emode" data-v="sheet" class="${exportMode === 'sheet' ? 'on' : ''}">Sprite sheet</button>
         <button data-act="emode" data-v="gif" class="${exportMode === 'gif' ? 'on' : ''}">GIF</button></div>` : ''}
-      <div class="seg">${sizes.map(s => `<button data-act="esize" data-v="${s}" class="${s === N * scale ? 'on' : ''}">${s}px</button>`).join('')}</div>
+      <div class="seg">${sizes.map(s => `<button data-act="esize" data-v="${s}" class="${s === L * scale ? 'on' : ''}">${s}px</button>`).join('')}</div>
       <div class="preview"><img src="${url}" alt="Your pixel art"></div>
       <p class="hint">${note}Press and hold the ${exportMode === 'gif' ? 'animation' : 'image'}, then choose Save to Photos.${canShare ? ' Or use Share below.' : ''}</p>
       <div class="stack">
@@ -1273,7 +1282,7 @@
     const rows = list.map(p => `
       <button class="prow ${p.id === proj.id ? 'on' : ''}" data-act="openproj" data-id="${esc(p.id)}">
         <img class="chk" src="${thumbURL(p, 0, 96)}" alt="">
-        <span><b>${esc(p.name)}</b><small>${p.n}×${p.n}, ${plural(p.frames.length, 'frame')}, ${plural(p.layers.length, 'layer')}</small></span>
+        <span><b>${esc(p.name)}</b><small>${p.w}×${p.h}, ${plural(p.frames.length, 'frame')}, ${plural(p.layers.length, 'layer')}</small></span>
       </button>`).join('');
     return `
       <h2>Projects</h2>
@@ -1285,13 +1294,53 @@
         <button data-act="dupproj">Duplicate</button>
         <button data-act="delproj">Delete</button>
       </div>
+      <button data-act="resizeopen" style="width:100%;margin-top:8px">Resize canvas (${NW}×${NH})</button>
       <div class="stack"><button data-act="close">Done</button></div>`;
+  }
+  function resizeHTML() {
+    const anchors = [[0, 0], [.5, 0], [1, 0], [0, .5], [.5, .5], [1, .5], [0, 1], [.5, 1], [1, 1]];
+    const names = ['top left', 'top', 'top right', 'left', 'center', 'right', 'bottom left', 'bottom', 'bottom right'];
+    return `
+      <h2>Resize canvas</h2>
+      <p class="hint" style="margin-top:0">Now ${NW}×${NH}. Pixels outside the new size are cropped, and new space is empty. Undo restores it.</p>
+      <div class="two">
+        <label class="lbl">Width<input class="txt" id="rw" type="number" inputmode="numeric" min="1" max="${MAXDIM}" value="${rsW}"></label>
+        <label class="lbl">Height<input class="txt" id="rh" type="number" inputmode="numeric" min="1" max="${MAXDIM}" value="${rsH}"></label>
+      </div>
+      <h3>Keep your art anchored at</h3>
+      <div class="anchors">${anchors.map(([x, y], i) => `<button data-act="ranchor" data-v="${x},${y}" aria-label="${names[i]}" class="${x === rsAx && y === rsAy ? 'on' : ''}">•</button>`).join('')}</div>
+      <div class="two" style="margin-top:16px">
+        <button data-act="projects">Back</button>
+        <button data-act="doresize">Resize</button>
+      </div>`;
+  }
+  function resizeCanvas() {
+    const w = clamp(Math.round(+rsW) || NW, 1, MAXDIM), h = clamp(Math.round(+rsH) || NH, 1, MAXDIM);
+    if (w === NW && h === NH) { toast('Already that size'); return; }
+    flush(); stopPlay(); dropSel();
+    pushStruct(); // snapshot with the old size so Undo can bring it back
+    const oW = NW, oH = NH, dx = Math.round((w - oW) * rsAx), dy = Math.round((h - oH) * rsAy);
+    proj.frames.forEach(fr => { fr.cels = fr.cels.map(c => {
+      const n = new Uint32Array(w * h);
+      for (let y = 0; y < oH; y++) {
+        const ty = y + dy; if (ty < 0 || ty >= h) continue;
+        for (let x = 0; x < oW; x++) { const tx = x + dx; if (tx >= 0 && tx < w) n[ty * w + tx] = c[y * oW + x]; }
+      }
+      return n;
+    }); });
+    proj.w = w; proj.h = h; setSize(w, h); fit(); updateUI(); render(); save();
+    closeSheet(); toast(`Resized to ${w}×${h}`);
   }
   function newProjHTML() {
     return `
       <h2>New project</h2>
       <h3>Canvas size</h3>
-      <div class="seg">${SIZES.map(n => `<button data-act="nsize" data-v="${n}" class="${n === newSize ? 'on' : ''}">${n}×${n}</button>`).join('')}</div>
+      <div class="seg">${SIZES.map(n => `<button data-act="nsize" data-v="${n}" class="${n === +newW && n === +newH ? 'on' : ''}">${n}×${n}</button>`).join('')}</div>
+      <h3>Or any size (1–${MAXDIM})</h3>
+      <div class="two" style="margin-top:0">
+        <label class="lbl">Width<input class="txt" id="nw" type="number" inputmode="numeric" min="1" max="${MAXDIM}" value="${newW}"></label>
+        <label class="lbl">Height<input class="txt" id="nh" type="number" inputmode="numeric" min="1" max="${MAXDIM}" value="${newH}"></label>
+      </div>
       <div class="two" style="margin-top:16px">
         <button data-act="projects">Back</button>
         <button data-act="create">Create</button>
@@ -1378,7 +1427,7 @@
     list = list.filter(p => p.id !== proj.id); list.push(proj);
     const data = {
       v: 1, palettes,
-      projects: list.map(p => ({ id: p.id, name: p.name, n: p.n, fps: p.fps, boomerang: !!p.boomerang, bg: p.bg || null, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
+      projects: list.map(p => ({ id: p.id, name: p.name, w: p.w, h: p.h, fps: p.fps, boomerang: !!p.boomerang, bg: p.bg || null, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
     };
     const file = new File([JSON.stringify(data)], 'pixel-backup.json', { type: 'application/json' });
     try {
@@ -1394,9 +1443,9 @@
       if (!d || !Array.isArray(d.projects)) throw new Error('bad');
       let count = 0, reopen = null;
       for (const p of d.projects) {
-        if (!SIZES.includes(p.n) || !Array.isArray(p.layers) || !Array.isArray(p.frames)) continue;
+        if (!Array.isArray(p.layers) || !Array.isArray(p.frames)) continue;
         const rec = {
-          id: String(p.id || uid()), name: String(p.name || 'Restored').slice(0, 40), n: p.n,
+          id: String(p.id || uid()), name: String(p.name || 'Restored').slice(0, 40), w: p.w || p.n, h: p.h || p.n,
           fps: clamp(+p.fps || 8, 1, 24), boomerang: !!p.boomerang, bg: isHex(p.bg) ? p.bg.toLowerCase() : null, updated: +p.updated || Date.now(),
           layers: p.layers.map(l => ({ name: String(l.name || 'Layer').slice(0, 24), vis: l.vis !== false })),
           frames: p.frames.map(fr => ({ cels: fr.cels.map(c => Uint32Array.from(c, v => v ? (0x1000000 | (v & 0xffffff)) : 0)) }))
@@ -1450,7 +1499,10 @@
         break;
       }
       case 'newproj': go('newproj'); break;
-      case 'nsize': newSize = +v; go('newproj'); break;
+      case 'nsize': newW = newH = +v; go('newproj'); break;
+      case 'resizeopen': rsW = NW; rsH = NH; go('resize'); break;
+      case 'ranchor': [rsAx, rsAy] = v.split(',').map(Number); go('resize'); break;
+      case 'doresize': resizeCanvas(); break;
       case 'create': createProject(); break;
       case 'openproj': openById(id); break;
       case 'dupproj': dupProject(); break;
@@ -1515,6 +1567,10 @@
       proj.fps = +t.value; $('#fval').textContent = t.value + ' fps';
       if (playing) { clearInterval(playing); playing = setInterval(tick, 1000 / proj.fps); }
       save();
+    } else if (t.id === 'nw') { newW = t.value;
+    } else if (t.id === 'nh') { newH = t.value;
+    } else if (t.id === 'rw') { rsW = t.value;
+    } else if (t.id === 'rh') { rsH = t.value;
     } else if (t.id === 'lname') {
       proj.layers[li].name = t.value.slice(0, 24) || 'Layer'; updateUI(); save();
     } else if (t.id === 'pname') {
