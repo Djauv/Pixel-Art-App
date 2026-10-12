@@ -128,6 +128,7 @@
   }
   #sheet h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; }
   #sheet h3 { margin: 16px 0 8px; font-size: 16px; font-weight: 400; color: var(--muted); display: flex; justify-content: space-between; }
+  .bgchip { display: inline-block; width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px; border: 1.5px solid currentColor; border-radius: 3px; }
   .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
   .stack { display: grid; gap: 10px; margin-top: 16px; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
@@ -276,7 +277,7 @@
   let gifBlob = null, gifURL = '';
   let playing = null, playStart = 0, playDir = 1;
   let curSheet = null, confirmDel = false;
-  const VERSION = 10; // keep in step with CACHE in sw.js
+  const VERSION = 11; // keep in step with CACHE in sw.js
   let sel = null, fl = null, clip = null; // selection rect, floating pixels, clipboard
 
   const cel = () => proj.frames[fi].cels[li];
@@ -310,7 +311,12 @@
   function frameCanvasOf(p, f) {
     const c = document.createElement('canvas'); c.width = c.height = p.n;
     const x = c.getContext('2d'), im = x.createImageData(p.n, p.n);
-    fillImage(im, compositeOf(p, f)); x.putImageData(im, 0, 0);
+    fillImage(im, compositeOf(p, f));
+    if (p.bg) {
+      const t = document.createElement('canvas'); t.width = t.height = p.n;
+      t.getContext('2d').putImageData(im, 0, 0);
+      x.fillStyle = p.bg; x.fillRect(0, 0, p.n, p.n); x.drawImage(t, 0, 0);
+    } else x.putImageData(im, 0, 0);
     return c;
   }
   function thumbURL(p, f, size) {
@@ -329,11 +335,15 @@
     const sw = stage.clientWidth, sh = stage.clientHeight, css = N * cell, m = Math.min(60, css);
     ox = clamp(ox, m - css, sw - m); oy = clamp(oy, m - css, sh - m);
   }
+  function applyBg() {
+    cv.style.background = proj && proj.bg ? proj.bg
+      : `repeating-conic-gradient(var(--chk1) 0% 25%, var(--chk2) 0% 50%) 0 0 / ${cell}px ${cell}px`;
+  }
   function layout() {
     cell = clamp(cell, 2, 64);
     const css = N * cell;
     cv.style.width = css + 'px'; cv.style.height = css + 'px';
-    cv.style.background = `repeating-conic-gradient(var(--chk1) 0% 25%, var(--chk2) 0% 50%) 0 0 / ${cell}px ${cell}px`;
+    applyBg();
     clampOffset(); place();
     const k = Math.max(1, Math.min(Math.floor(2048 / N), Math.round(cell * dpr)));
     if (k !== bmpK) { bmpK = k; cv.width = cv.height = N * k; }
@@ -772,7 +782,7 @@
 
   /* ---------- projects ---------- */
   function makeProject(n, name) {
-    return { id: uid(), name, n, layers: [{ name: 'Layer 1', vis: true }], frames: [{ cels: [new Uint32Array(n * n)] }], fps: 8, updated: Date.now() };
+    return { id: uid(), name, n, layers: [{ name: 'Layer 1', vis: true }], frames: [{ cels: [new Uint32Array(n * n)] }], fps: 8, bg: null, updated: Date.now() };
   }
   function openProject(p) {
     stopPlay();
@@ -1023,6 +1033,14 @@
         <button data-act="grid" class="${showGrid ? 'on' : ''}">Grid ${showGrid ? 'on' : 'off'}</button>
         <button data-act="mirror" class="${mirror ? 'on' : ''}">Mirror ${mirror ? 'on' : 'off'}</button>
       </div>
+      <h3>Background</h3>
+      <div class="seg bgseg">
+        <button data-act="bg" data-v="" class="${!proj.bg ? 'on' : ''}">None</button>
+        <button data-act="bg" data-v="#ffffff" class="${proj.bg === '#ffffff' ? 'on' : ''}">White</button>
+        <button data-act="bg" data-v="#000000" class="${proj.bg === '#000000' ? 'on' : ''}">Black</button>
+        <button data-act="bg" data-v="cur" class="${proj.bg && proj.bg === color ? 'on' : ''}">Color<i class="bgchip" style="background:${color}"></i></button>
+      </div>
+      <p class="hint">None keeps the background transparent. Color uses your current drawing color. The background shows in exports and GIFs.</p>
       <h3>Grid opacity <span id="gval">${Math.round(gridAlpha * 100)}%</span></h3>
       <input class="range" id="galpha" type="range" min="10" max="100" step="5" value="${Math.round(gridAlpha * 100)}" aria-label="Grid opacity">
       <div class="stack">
@@ -1073,7 +1091,8 @@
   }
   function encodeGIF(scale) {
     const W = N * scale, H = W;
-    const comps = proj.frames.map((_, f) => compositeOf(proj, f));
+    const bgv = proj.bg ? h2n(proj.bg) : 0;
+    const comps = proj.frames.map((_, f) => { const a = compositeOf(proj, f); if (bgv) for (let i = 0; i < a.length; i++) if (!a[i]) a[i] = bgv; return a; });
     const uniq = new Set();
     for (const a of comps) for (const v of a) if (v) uniq.add(v);
     const quant = uniq.size > 255;
@@ -1359,7 +1378,7 @@
     list = list.filter(p => p.id !== proj.id); list.push(proj);
     const data = {
       v: 1, palettes,
-      projects: list.map(p => ({ id: p.id, name: p.name, n: p.n, fps: p.fps, boomerang: !!p.boomerang, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
+      projects: list.map(p => ({ id: p.id, name: p.name, n: p.n, fps: p.fps, boomerang: !!p.boomerang, bg: p.bg || null, updated: p.updated, layers: p.layers, frames: p.frames.map(f => ({ cels: f.cels.map(c => Array.from(c)) })) }))
     };
     const file = new File([JSON.stringify(data)], 'pixel-backup.json', { type: 'application/json' });
     try {
@@ -1378,7 +1397,7 @@
         if (!SIZES.includes(p.n) || !Array.isArray(p.layers) || !Array.isArray(p.frames)) continue;
         const rec = {
           id: String(p.id || uid()), name: String(p.name || 'Restored').slice(0, 40), n: p.n,
-          fps: clamp(+p.fps || 8, 1, 24), boomerang: !!p.boomerang, updated: +p.updated || Date.now(),
+          fps: clamp(+p.fps || 8, 1, 24), boomerang: !!p.boomerang, bg: isHex(p.bg) ? p.bg.toLowerCase() : null, updated: +p.updated || Date.now(),
           layers: p.layers.map(l => ({ name: String(l.name || 'Layer').slice(0, 24), vis: l.vis !== false })),
           frames: p.frames.map(fr => ({ cels: fr.cels.map(c => Uint32Array.from(c, v => v ? (0x1000000 | (v & 0xffffff)) : 0)) }))
         };
@@ -1410,6 +1429,7 @@
       case 'close': closeSheet(); break;
       case 'menu': go('menu'); break;
       case 'projects': go('projects'); break;
+      case 'bg': proj.bg = v === 'cur' ? color : (v || null); applyBg(); save(); go('menu'); break;
       case 'grid': showGrid = !showGrid; render(); save(false); go('menu'); break;
       case 'mirror': mirror = !mirror; render(); save(false); go('menu'); break;
       case 'clearlayer': {
