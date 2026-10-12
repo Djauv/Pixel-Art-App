@@ -252,6 +252,7 @@
 <div id="overlay" hidden><div id="sheet"></div><button id="stopPlay">Stop</button></div>
 <div id="toast" role="status"></div>
 <input type="file" id="rfile" accept=".json,application/json" hidden>
+<input type="file" id="ifile" accept="image/*" hidden>
 
 <script>
 (() => {
@@ -283,7 +284,7 @@
   let gifBlob = null, gifURL = '';
   let playing = null, playStart = 0, playDir = 1;
   let curSheet = null, confirmDel = false;
-  const VERSION = 13; // keep in step with CACHE in sw.js
+  const VERSION = 14; // keep in step with CACHE in sw.js
   let selShape = 'rect', lasso = null;
   let sel = null, fl = null, clip = null; // selection rect, floating pixels, clipboard
 
@@ -673,6 +674,13 @@
     for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) { const k = y * sel.w + x; if (inMask(k)) data[k] = c[(sel.y + y) * NW + sel.x + x]; }
     return { w: sel.w, h: sel.h, data, mask };
   }
+  function placeFloat(w, h, data, mask) { // drop pixels onto the layer as a floating selection at the top-left of the view
+    const s0 = { t: 'cel', f: fi, l: li, d: cel().slice() }; fl = null;
+    const x = clamp(Math.max(0, Math.ceil(-ox / cell)), 0, Math.max(0, NW - w)), y = clamp(Math.max(0, Math.ceil(-oy / cell)), 0, Math.max(0, NH - h));
+    fl = { data, base: cel().slice() };
+    sel = newSel(x, y, w, h); if (mask) sel.mask = mask;
+    stamp(); pushUndo(s0); render(); syncSelUI();
+  }
   function selAction(a) {
     if (a === 'done') { dropSel(); setTool(prevTool === 'select' ? 'draw' : prevTool); return; }
     if (a === 'shapeRect' || a === 'shapeFree') { selShape = a === 'shapeFree' ? 'free' : 'rect'; syncSelUI(); toast(selShape === 'free' ? 'Draw a loop around what you want' : 'Drag a rectangle'); return; }
@@ -681,11 +689,8 @@
     if (a === 'paste') {
       if (!clip) { toast('Nothing copied yet'); return; }
       if (!layerOK()) return;
-      const s0 = snap(); fl = null;
-      const x = clamp(Math.max(0, Math.ceil(-ox / cell)), 0, Math.max(0, NW - clip.w)), y = clamp(Math.max(0, Math.ceil(-oy / cell)), 0, Math.max(0, NH - clip.h));
-      fl = { data: clip.data.slice(), base: cel().slice() };
-      sel = newSel(x, y, clip.w, clip.h); if (clip.mask) sel.mask = clip.mask.slice();
-      stamp(); pushUndo(s0); render(); syncSelUI(); toast('Pasted. Drag to move it.');
+      placeFloat(clip.w, clip.h, clip.data.slice(), clip.mask && clip.mask.slice());
+      toast('Pasted. Drag to move it.');
       return;
     }
     if (!sel) return;
@@ -1014,6 +1019,7 @@
     projects: { html: projectsHTML },
     newproj: { html: newProjHTML },
     resize: { html: resizeHTML },
+    import: { html: importHTML },
     layers: { clear: true, html: layersHTML },
     frames: { clear: true, html: framesHTML, init: () => { const s = sheet.querySelector('.fth.sel'), st = sheet.querySelector('.strip'); if (s && st) st.scrollLeft += s.getBoundingClientRect().left - st.getBoundingClientRect().left - (st.clientWidth - s.offsetWidth) / 2; } },
     palettes: { html: palettesHTML }
@@ -1115,6 +1121,7 @@
       <div class="stack">
         <button data-act="projects">Projects</button>
         <button data-act="export">Export image</button>
+        <button data-act="importimg">Import image</button>
         <button data-act="clearlayer">Clear this layer</button>
         <div class="two" style="margin-top:0">
           <button data-act="backup">Back up</button>
@@ -1331,6 +1338,96 @@
     drag(sv, e => { const [x, y] = frac(sv, e); hsv.s = x; hsv.v = 1 - y; paint(true); });
     drag(hue, e => { hsv.h = frac(hue, e)[0] * 360; paint(true); });
     paint(false);
+  }
+
+  /* import image */
+  let impImg = null, impName = '', impMode = 'fit', impWidth = 32, impSmooth = true, impSnap = false;
+  function processImport() {
+    const iw = impImg.naturalWidth, ih = impImg.naturalHeight;
+    let tw, th;
+    if (impMode === 'width') { tw = clamp(Math.round(+impWidth) || 1, 1, 256); th = Math.max(1, Math.round(ih * tw / iw)); }
+    else { const sc = Math.min(NW / iw, NH / ih); tw = Math.min(NW, Math.max(1, Math.round(iw * sc))); th = Math.min(NH, Math.max(1, Math.round(ih * tw / iw))); }
+    let src = impImg;
+    if (impSmooth) { // halve repeatedly so big photos average instead of aliasing
+      let cw = iw, ch = ih;
+      while (cw / 2 >= tw && ch / 2 >= th) {
+        const c = document.createElement('canvas'); c.width = cw = Math.ceil(cw / 2); c.height = ch = Math.ceil(ch / 2);
+        const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, cw, ch); src = c;
+      }
+    }
+    const c = document.createElement('canvas'); c.width = tw; c.height = th;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.imageSmoothingEnabled = impSmooth; x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, tw, th);
+    const px = x.getImageData(0, 0, tw, th).data, data = new Uint32Array(tw * th);
+    const cols = impSnap ? pal().colors.filter(isHex).map(h => { const n = parseInt(h.slice(1), 16); return [n, n >> 16, (n >> 8) & 255, n & 255]; }) : [];
+    for (let i = 0; i < data.length; i++) {
+      const a = px[i * 4 + 3]; if (a < 128) continue;
+      let r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2], rgb = (r << 16) | (g << 8) | b;
+      if (cols.length) { let best = 1e9; for (const q of cols) { const d = (q[1] - r) ** 2 + (q[2] - g) ** 2 + (q[3] - b) ** 2; if (d < best) { best = d; rgb = q[0]; } } }
+      data[i] = 0x1000000 | rgb;
+    }
+    return { w: tw, h: th, data };
+  }
+  function importPreview() {
+    const r = processImport(), k = Math.max(1, Math.floor(280 / Math.max(r.w, r.h)));
+    const c = document.createElement('canvas'); c.width = r.w * k; c.height = r.h * k;
+    const t = document.createElement('canvas'); t.width = r.w; t.height = r.h;
+    const im = t.getContext('2d').createImageData(r.w, r.h); fillImage(im, r.data); t.getContext('2d').putImageData(im, 0, 0);
+    const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(t, 0, 0, c.width, c.height);
+    return { url: c.toDataURL(), r };
+  }
+  function importHTML() {
+    const { url, r } = importPreview();
+    const hasPal = pal().colors.length > 0;
+    return `
+      <h2>Import image</h2>
+      <div class="preview"><img id="ipv" src="${url}" alt="Preview"></div>
+      <p class="hint" id="isz" style="text-align:center">${r.w}×${r.h} pixels</p>
+      <h3>Size</h3>
+      <div class="seg">
+        <button data-act="imode" data-v="fit" class="${impMode === 'fit' ? 'on' : ''}">Fit canvas</button>
+        <button data-act="imode" data-v="width" class="${impMode === 'width' ? 'on' : ''}">Custom width</button>
+      </div>
+      ${impMode === 'width' ? `<label class="lbl" style="margin-top:8px">Width in pixels<input class="txt" id="iw" type="number" inputmode="numeric" min="1" max="256" value="${impWidth}"></label>` : ''}
+      <h3>Scaling</h3>
+      <div class="seg">
+        <button data-act="ismooth" data-v="1" class="${impSmooth ? 'on' : ''}">Smooth</button>
+        <button data-act="ismooth" data-v="0" class="${!impSmooth ? 'on' : ''}">Sharp</button>
+      </div>
+      <h3>Colors</h3>
+      <div class="seg">
+        <button data-act="isnap" data-v="0" class="${!impSnap ? 'on' : ''}">Keep colors</button>
+        <button data-act="isnap" data-v="1" class="${impSnap ? 'on' : ''}" ${hasPal ? '' : 'disabled'}>Use palette</button>
+      </div>
+      <p class="hint">Place puts it on the current layer as a selection you can drag. Smooth suits photos; Sharp suits existing pixel art.</p>
+      <div class="two"><button data-act="close">Cancel</button><button data-act="iplace">Place on canvas</button></div>
+      <button data-act="inew" style="width:100%;margin-top:8px">New project from image</button>`;
+  }
+  async function loadImportFile(f) {
+    if (!f) return;
+    const url = URL.createObjectURL(f), im = new Image();
+    try {
+      im.src = url; await im.decode();
+      impImg = im; impName = f.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Imported';
+      impMode = 'fit'; impWidth = Math.min(im.naturalWidth, MAXDIM); impSnap = false;
+      go('import');
+    } catch (_) { toast('Couldn’t read that image'); }
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+  $('#ifile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; loadImportFile(f); });
+  function placeImport() {
+    if (!layerOK()) return;
+    const r = processImport();
+    closeSheet(); setTool('select');
+    placeFloat(r.w, r.h, r.data); toast('Placed. Drag to move it, then tap Done.');
+  }
+  async function importAsProject() {
+    const r = processImport();
+    if (r.w > MAXDIM || r.h > MAXDIM) { toast(`Projects can be up to ${MAXDIM} pixels. Lower the width.`); return; }
+    flush();
+    const p = makeProject(r.w, r.h, impName); p.frames[0].cels[0] = r.data;
+    openProject(p); dirtyP = true; save();
+    closeSheet(); toast(`New ${r.w}×${r.h} project`);
   }
 
   /* projects */
@@ -1553,6 +1650,12 @@
       case 'share': doShare(); break;
       case 'backup': backup(); break;
       case 'restore': $('#rfile').click(); break;
+      case 'importimg': $('#ifile').click(); break;
+      case 'imode': impMode = v; go('import'); break;
+      case 'ismooth': impSmooth = v === '1'; go('import'); break;
+      case 'isnap': impSnap = v === '1'; go('import'); break;
+      case 'iplace': placeImport(); break;
+      case 'inew': importAsProject(); break;
       case 'addcolor': {
         const P = pal();
         if (!P.colors.includes(color)) { P.colors.push(color); save(false); toast('Added to ' + P.name); }
@@ -1628,6 +1731,9 @@
       proj.fps = +t.value; $('#fval').textContent = t.value + ' fps';
       if (playing) { clearInterval(playing); playing = setInterval(tick, 1000 / proj.fps); }
       save();
+    } else if (t.id === 'iw') {
+      impWidth = t.value;
+      const { url, r } = importPreview(); $('#ipv').src = url; $('#isz').textContent = `${r.w}×${r.h} pixels`;
     } else if (t.id === 'nw') { newW = t.value;
     } else if (t.id === 'nh') { newH = t.value;
     } else if (t.id === 'rw') { rsW = t.value;
